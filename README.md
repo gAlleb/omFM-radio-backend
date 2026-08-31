@@ -1,51 +1,55 @@
 # omFM stack
 
-Свой стек интернет-радио: Liquidsoap играет собственные станции, Icecast
-раздаёт и ретранслирует, omfmapi собирает now-playing и статистику
-слушателей, Centrifugo отдаёт всё это клиентам по SSE.
+***English** · [Русский](README.ru.md)*
+
+A self-hosted internet radio stack: Liquidsoap plays our own stations, Icecast
+serves and relays them, omfmapi collects now-playing and listener stats, and
+Centrifugo pushes it all to clients over SSE.
 
 ```
 Liquidsoap ──POST /np/:station──> omfmapi ──publish──> Centrifugo ──SSE──> nuxt-om
     │                                ▲
-    └──> Icecast ──> слушатели       │
-         (+ релеи с AzuraCast)       │
+    └──> Icecast ──> listeners       │
+         (+ relays from AzuraCast)   │
                                      │
     nginx access.log ──> listeners_monitor ──POST /listeners_stat
     icecast listclients ─┘
     AzuraCast API ───────────────────┘
 ```
 
-## Станции: добавить, удалить
+## Stations: adding and removing
 
-Единственный источник правды — [stations.toml](stations.toml). Всё остальное
-из него генерируется командой `make apply`.
+The single source of truth is [stations.toml](stations.toml). Everything else
+is generated from it by `make apply`.
 
-### Что руками, а что само
+### What you do by hand, and what is generated
 
-| | Руками | Генератором |
+| | By hand | Generated |
 |---|---|---|
-| **Релей** | блок в `stations.toml` | всё остальное |
-| **Своя станция** | блок в `stations.toml`, каталог с `index.liq`, каталог для HLS на сервере | всё остальное |
+| **Relay** | a block in `stations.toml` | everything else |
+| **Own station** | a block in `stations.toml`, a directory with `index.liq`, an HLS directory on the server | everything else |
 
-«Всё остальное» — это:
+"Everything else" means:
 
-| Файл | Что получает |
+| File | What it gets |
 |---|---|
-| `docker/generated/stations.json` | реестр для omfmapi и listeners_monitor |
-| `docker/icecast/config/icecast.xml` | `<relay>` и `<mount>` |
-| `docker-compose.yaml` | сервис `liquidsoap-<станция>`: порты, volume'ы, healthcheck, переменные окружения |
+| `docker/generated/stations.json` | the registry for omfmapi and listeners_monitor |
+| `docker/icecast/config/icecast.xml` | `<relay>` and `<mount>` blocks |
+| `docker-compose.yaml` | the `liquidsoap-<station>` service: ports, volumes, healthcheck, environment |
 
-Правится только между маркерами `GENERATED` — руками туда не лезть. `make check`
-уронит сборку, если сгенерированное разъедется с реестром.
+Only the regions between the `GENERATED` markers are rewritten — do not edit
+them by hand. `make check` fails the build if the generated files drift out of
+sync with the registry.
 
-Генератор проверяет дубли `mount` и портов, обязательные поля и запас по
-лимиту `<sources>` у Icecast — опечатка ловится до деплоя, а не в эфире.
+The generator validates duplicate `mount` values and ports, required fields,
+and the headroom left in Icecast's `<sources>` limit — so a typo is caught
+before deploy rather than on air.
 
-### Добавить релей
+### Adding a relay
 
-Одна правка и одна команда.
+One edit and one command.
 
-**1.** Блок в `stations.toml`:
+**1.** A block in `stations.toml`:
 
 ```toml
 [stations.newfm]
@@ -54,42 +58,43 @@ name     = "New FM"
 mount    = "/newfm"
 fallback = "/fallback-[192].aac"
 upstream = "http://radio.omfm.ru:8100/newfm.aac"
-azuracast_id = 42   # только если станция на нашем AzuraCast — иначе не указывать
-monitor  = true     # false — не собирать по ней статистику слушателей
+azuracast_id = 42   # only if the station lives on our AzuraCast — otherwise omit
+monitor  = true     # false — do not collect listener stats for it
 ```
 
-**2.** Сгенерировать и применить:
+**2.** Generate and apply:
 
 ```bash
 make apply && make verify
 docker compose up -d --build icecast
 ```
 
-`--build` обязателен: `icecast.xml` вшивается в образ при сборке, без
-пересборки новый mount не появится. Слушателей на минуту отцепит.
+`--build` is mandatory: `icecast.xml` is baked into the image at build time, so
+without a rebuild the new mount will not appear. Listeners get dropped for
+about a minute.
 
-### Добавить свою станцию
+### Adding your own station
 
-**1.** Блок в `stations.toml`:
+**1.** A block in `stations.toml`:
 
 ```toml
 [stations.night]
 kind         = "local"
 name         = "omFM Night"
-shortcode    = "night"        # канал Centrifugo: station:night
+shortcode    = "night"        # Centrifugo channel: station:night
 mount        = "/night"
 fallback     = "/fallback-[192].aac"
-description  = "Ночной эфир"  # уходит в output.icecast
+description  = "Night stream" # goes into output.icecast
 genre        = "Lofi"
 url          = "https://omfm.ru"
 timezone     = "Europe/Moscow"
-harbor_port  = 8009           # свободный, генератор проверит
+harbor_port  = 8009           # must be free, the generator checks
 telnet_port  = 1236
 hls_playlist = "night.m3u8"
 monitor      = true
 ```
 
-**2.** Каталог со скриптом — берём за образец существующую станцию:
+**2.** The script directory — take an existing station as a template:
 
 ```bash
 mkdir -p docker/liquidsoap/rootfs/home/radio/liquidsoap/night
@@ -97,36 +102,37 @@ cp docker/liquidsoap/rootfs/home/radio/liquidsoap/cdp/index.liq \
    docker/liquidsoap/rootfs/home/radio/liquidsoap/night/
 ```
 
-Дальше в этом `index.liq` правятся **только источники и расписание**. Всё
-остальное подключается из `../lib`, параметры приходят из окружения — трогать
-их в скрипте не нужно. Каталог `log` внутри контейнера создаст Dockerfile.
+From there, edit **only the sources and the schedule** in that `index.liq`.
+Everything else is pulled in from `../lib`, and the parameters come from the
+environment — there is nothing to touch in the script. The `log` directory
+inside the container is created by the Dockerfile.
 
-**3.** Каталог для HLS-сегментов **на сервере** (путь из `[paths] hls_root`):
+**3.** A directory for HLS segments **on the server** (path from `[paths] hls_root`):
 
 ```bash
 mkdir -p /var/www/html/omfm/hls/night
 ```
 
-**4.** Сгенерировать, проверить, поднять:
+**4.** Generate, verify, bring it up:
 
 ```bash
 make apply && make verify
 make station-deploy STATION=night
 ```
 
-**5.** Убедиться, что встало:
+**5.** Confirm it started:
 
 ```bash
-make station-status                      # должно дойти до healthy, до 90 секунд
+make station-status                      # should reach healthy, up to 90 seconds
 docker compose logs --tail=50 liquidsoap-night
 ```
 
-Если в логах сыпется `Failed to obtain a media request` — плейлист не отдаёт
-треков, смотри пути к музыке в `index.liq`.
+If the logs are full of `Failed to obtain a media request`, the playlist is not
+returning any tracks — check the music paths in `index.liq`.
 
-### Удалить релей
+### Removing a relay
 
-**1.** Убрать блок из `stations.toml`.
+**1.** Delete the block from `stations.toml`.
 
 **2.**
 
@@ -135,118 +141,119 @@ make apply && make verify
 docker compose up -d --build icecast
 ```
 
-### Удалить свою станцию
+### Removing your own station
 
-**1.** Убрать блок из `stations.toml`.
+**1.** Delete the block from `stations.toml`.
 
-**2.** Остановить и удалить контейнер — сам он не исчезнет:
+**2.** Stop and remove the container — it will not disappear on its own:
 
 ```bash
 docker compose stop liquidsoap-night && docker compose rm -f liquidsoap-night
 ```
 
-Это важно сделать **до** `make apply`: после того как сервис пропадёт из
-compose, `docker compose` перестанет его знать, контейнер останется висеть
-как orphan и будет держать свои порты.
+Do this **before** `make apply`: once the service is gone from the compose
+file, `docker compose` no longer knows about it, and the container is left
+hanging around as an orphan still holding its ports.
 
-Если уже применил и контейнер завис сиротой:
+If you already applied and the container is stuck as an orphan:
 
 ```bash
-docker rm -f liquidsoap-night          # либо docker compose up -d --remove-orphans
+docker rm -f liquidsoap-night          # or docker compose up -d --remove-orphans
 ```
 
-**3.** Применить и пересобрать Icecast (у станции был свой mount):
+**3.** Apply and rebuild Icecast (the station had its own mount):
 
 ```bash
 make apply && make verify
 docker compose up -d --build icecast
 ```
 
-**4.** Прибрать за собой — уже не обязательно, но чтобы не копилось:
+**4.** Clean up after yourself — optional, but keeps things from piling up:
 
 ```bash
 rm -rf docker/liquidsoap/rootfs/home/radio/liquidsoap/night
-rm -rf /var/www/html/omfm/hls/night     # на сервере
+rm -rf /var/www/html/omfm/hls/night     # on the server
 ```
 
-Станция сразу пропадёт из `/listeners` и `/np`, а её порты освободятся для
-следующей.
+The station disappears from `/listeners` and `/np` immediately, and its ports
+are freed for the next one.
 
-### Как устроены скрипты Liquidsoap
+### How the Liquidsoap scripts are laid out
 
 ```
-lib/settings.liq     параметры станции из окружения + общие настройки
-lib/playlog.liq      журнал сыгранного и проверка на повтор
-lib/queues.liq       очереди ручного вброса + HTTP-эндпоинты
-lib/nowplaying.liq   история, отправка в omfmapi, /nowplaying, /metadata
-lib/crossfade.liq    переходы между треками
-lib/output.liq       выходы Icecast и HLS
-<станция>/index.liq  ТОЛЬКО источники и расписание
+lib/settings.liq     station parameters from the environment + shared settings
+lib/playlog.liq      log of what has played and the repeat check
+lib/queues.liq       manual push queues + their HTTP endpoints
+lib/nowplaying.liq   history, POSTing to omfmapi, /nowplaying, /metadata
+lib/crossfade.liq    transitions between tracks
+lib/output.liq       Icecast and HLS outputs
+<station>/index.liq  ONLY sources and schedule
 ```
 
-Станция может дополнить payload своим блоком: так cdp добавляет
-`playing_next`, которого у omfm нет — при нескольких плейлистах и
-расписании следующий трек достоверно не предсказать.
+A station can extend the payload with its own block: that is how cdp adds
+`playing_next`, which omfm does not have — with several playlists and a
+schedule there is no way to reliably predict the next track.
 
-### Одна станция — один контейнер
+### One station, one container
 
-Каждая своя станция это отдельный сервис `liquidsoap-<имя>`, а не процесс
-внутри общего контейнера под supervisord. Что это даёт:
+Each of our own stations is a separate `liquidsoap-<name>` service, not a
+process inside a shared container under supervisord. What that buys:
 
-- **healthcheck на harbor-порт** ловит не только падение, но и **зависание**.
-  Supervisord перезапускал только упавший процесс; повисший liquidsoap
-  (при живом процессе и мёртвом эфире) он не трогал вовсе.
-- станцию можно пересобрать и перезапустить, **не прерывая эфир остальных**
-- состояние каждой станции видно в `docker compose ps` и `docker logs`
+- **a healthcheck on the harbor port** catches not just a crash but a **hang**.
+  Supervisord only restarted a process that had died; a wedged liquidsoap
+  (live process, dead air) it left alone entirely.
+- a station can be rebuilt and restarted **without interrupting the others**
+- each station's state is visible in `docker compose ps` and `docker logs`
 
 ```bash
-make station-deploy  STATION=cdp   # пересобрать и поднять только cdp
+make station-deploy  STATION=cdp   # rebuild and bring up cdp only
 make station-restart STATION=cdp
 make station-logs    STATION=cdp
-make station-status                # состояние и healthcheck всех станций
+make station-status                # state and healthcheck of every station
 ```
 
-## Команды
+## Commands
 
 ```bash
-make apply      # сгенерировать конфиги из stations.toml
-make check      # убедиться, что ничего не разъехалось
-make verify     # check + liquidsoap --check + валидация compose и исходников
-make secrets    # пересобрать docker-секреты (*.txt) из .env
-make up         # docker compose up -d --build (сначала прогоняет check)
+make apply      # generate configs from stations.toml
+make check      # confirm nothing has drifted
+make verify     # check + liquidsoap --check + compose and source validation
+make secrets    # rebuild the docker secrets (*.txt) from .env
+make up         # docker compose up -d --build (runs check first)
 make down
 make logs
 ```
 
-## Секреты
+## Secrets
 
-Все пароли, ключи и токены живут в `.env` в корне — он в `.gitignore`
-и в репозиторий не попадает. Шаблон: [.env.example](.env.example).
+Every password, key and token lives in `.env` at the repo root — it is in
+`.gitignore` and never reaches the repository. Template:
+[.env.example](.env.example).
 
-Вне git также `docker/centrifugo/config.toml` (рядом лежит `.example`),
-`docker/listeners_monitor/*.txt` и TLS-сертификат Icecast
-`docker/icecast/config/concat-om.pem` — в нём приватный ключ.
-Файлы `*.txt` руками не редактируются: они пересобираются из `.env`
-командой `make secrets`.
+Also outside git: `docker/centrifugo/config.toml` (with a `.example` next to
+it), `docker/listeners_monitor/*.txt`, and the Icecast TLS certificate
+`docker/icecast/config/concat-om.pem` — which contains the private key.
+The `*.txt` files are not edited by hand: they are rebuilt from `.env` by
+`make secrets`.
 
-Первичная настройка:
+First-time setup:
 
 ```bash
-cp .env.example .env                              # заполнить значения
+cp .env.example .env                              # fill in the values
 cp docker/centrifugo/config.toml.example docker/centrifugo/config.toml
-# сертификат скопировать отдельно, в репозитории его нет:
-#   scp concat-om.pem сервер:.../docker/icecast/config/
+# copy the certificate separately, it is not in the repository:
+#   scp concat-om.pem server:.../docker/icecast/config/
 chmod 600 docker/icecast/config/concat-om.pem
 make secrets && make apply && make up
 ```
 
-Без `concat-om.pem` сборка Icecast упадёт на `COPY` — это ожидаемо.
+Without `concat-om.pem` the Icecast build fails at `COPY` — that is expected.
 
-Icecast не стартует, если обязательные переменные не заданы — это
-намеренно, чтобы не подняться с плейсхолдером вместо пароля.
+Icecast refuses to start if the required variables are unset — deliberately, so
+that it never comes up with a placeholder in place of a password.
 
-## Заметки
+## Notes
 
 - [docker/liquidsoap/MIGRATION-NOTES.md](docker/liquidsoap/MIGRATION-NOTES.md)
-  — что менялось между версиями Liquidsoap и чеклист перехода на 2.5.
-  Текущий образ — `v2.4.5`.
+  — what changed between Liquidsoap versions and the checklist for moving to
+  2.5. The current image is `v2.4.5`.
