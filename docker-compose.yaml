@@ -55,7 +55,6 @@ services:
       - omfm-network
     environment:
       TZ: "Europe/Moscow"
-      STREAM_NAMES: "omfm,cdp"
       FINDIP_TOKEN: "${FINDIP_TOKEN:?FINDIP_TOKEN не задан в .env}"
     volumes:
       - /var/log/nginx:/var/log/nginx:ro
