@@ -4,6 +4,7 @@ import re
 import time
 import json
 import os
+import base64
 import xml.etree.ElementTree as ET
 from collections import OrderedDict
 from datetime import datetime
@@ -18,6 +19,9 @@ activity_window = refresh_interval * 3
 # Кэш геоданных: без ограничения он рос бы бесконечно.
 GEO_CACHE_MAX = 5000
 GEO_CACHE_TTL = 24 * 60 * 60
+
+# Сколько байт с конца лога разбирать при первом запуске.
+INITIAL_TAIL_BYTES = 2 * 1024 * 1024
 
 # Реестр станций: сгенерирован из stations.toml, руками не править.
 STATIONS_FILE = os.environ.get("STATIONS_FILE", "/app/stations.json")
@@ -54,6 +58,13 @@ ICESTATS_URLS = {
     name: f"{ICECAST_ADMIN_BASE}/admin/listclients?mount={STATIONS[name]['mount']}"
     for name in STREAM_NAMES
 }
+
+def basic_auth_header(username, password):
+    """Заголовок Basic-авторизации. Собираем сами: aiohttp.BasicAuth и
+    параметр auth= объявлены устаревшими и уйдут в aiohttp 4."""
+    token = base64.b64encode(f"{username}:{password}".encode()).decode()
+    return {"Authorization": f"Basic {token}"}
+
 
 def read_secret_file(secret_name):
     """Reads a Docker secret from a file."""
@@ -175,9 +186,13 @@ async def get_geo_data(ip_address):
 def read_new_lines(path):
     """Дочитывает access.log с прошлой позиции.
 
-    Раньше файл читался целиком на каждом цикле — стоимость росла линейно
-    до ротации лога. Здесь запоминаем смещение; если inode сменился или
-    файл стал короче (ротация, усечение) — начинаем сначала.
+    Читаем в БИНАРНОМ режиме: у текстового файла tell() возвращает не
+    смещение в байтах, а непрозрачный cookie с состоянием декодера, и
+    арифметика над ним ломается на строках с не-ASCII символами.
+
+    При первом запуске не разбираем весь исторический лог — нас интересуют
+    только последние activity_window секунд, поэтому встаём near конца.
+    Смена inode или уменьшение файла (ротация, усечение) — читаем сначала.
     """
     try:
         stat = os.stat(path)
@@ -185,24 +200,31 @@ def read_new_lines(path):
         print(f"Error: Log file not found: {path}")
         return []
 
+    first_attach = log_position["inode"] is None
+
     if log_position["inode"] != stat.st_ino or stat.st_size < log_position["offset"]:
         log_position["inode"] = stat.st_ino
-        log_position["offset"] = 0
+        log_position["offset"] = max(0, stat.st_size - INITIAL_TAIL_BYTES) if first_attach else 0
 
-    if stat.st_size == log_position["offset"]:
+    if stat.st_size <= log_position["offset"]:
         return []
 
-    with open(path, "r", errors="replace") as fh:
+    with open(path, "rb") as fh:
         fh.seek(log_position["offset"])
-        lines = fh.readlines()
-        log_position["offset"] = fh.tell()
+        chunk = fh.read(stat.st_size - log_position["offset"])
 
-    # Последняя строка может быть дописана не до конца — вернём её в следующий раз.
-    if lines and not lines[-1].endswith("\n"):
-        log_position["offset"] -= len(lines[-1].encode("utf-8", "replace"))
-        lines.pop()
+    # Последняя строка может быть дописана не до конца — оставим её на следующий раз.
+    cut = chunk.rfind(b"\n")
+    if cut == -1:
+        return []
 
-    return lines
+    log_position["offset"] += cut + 1
+    text = chunk[:cut].decode("utf-8", "replace")
+
+    if first_attach:
+        # Встали в середину строки — первую отбрасываем, она обрезана.
+        return text.split("\n")[1:]
+    return text.split("\n")
 
 
 async def parse_log_file(log_file, connected_listeners, activity_window, log_regex):
@@ -277,8 +299,7 @@ async def parse_log_file(log_file, connected_listeners, activity_window, log_reg
 async def fetch_icestats_data(url, username, password):
     """Fetches and parses the Icecast XML data with authentication."""
     try:
-        auth = aiohttp.BasicAuth(username, password)
-        async with http_session.get(url, auth=auth) as response:
+        async with http_session.get(url, headers=basic_auth_header(username, password)) as response:
             response.raise_for_status()
             xml_content = await response.text()
             return xml_content
@@ -421,8 +442,9 @@ async def send_to_api(data, api_endpoint, username, password):
     """Отправка сводки в omfmapi. Именно aiohttp, а не requests:
     синхронный вызов внутри asyncio блокировал бы весь цикл."""
     try:
-        auth = aiohttp.BasicAuth(username, password)
-        async with http_session.post(api_endpoint, json=data, auth=auth) as response:
+        async with http_session.post(
+            api_endpoint, json=data, headers=basic_auth_header(username, password)
+        ) as response:
             response.raise_for_status()
             print(f"Data sent to API: {api_endpoint} ({response.status})")
     except Exception as e:

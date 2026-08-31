@@ -34,22 +34,36 @@ omfm_0 = rotate(weights=[1,4], [jingles, cdp])
 %include "../lib/nowplaying.liq"
 
 omfm_0 = with_queues(omfm_0)
-omfm_0 = with_nowplaying(extend=
-  fun (np) ->
-    np.{
-      playing_next =
-        {
-          playlist = next_playlist(),
-          song =
-            {
-              text = "#{next_title()} - #{next_artist()}",
-              title = next_title(),
-              artist = next_artist(),
-              album = next_album()
-            }
-        }
-    },
-  omfm_0)
+omfm_0 =
+  with_nowplaying(
+    extend=
+      fun (np, m, src) ->
+        begin
+          # Когда начнётся следующий трек: длительность текущего плюс момент
+          # его старта. Два источника длительности — из метаданных файла и из
+          # самого источника; фронтенд использует played_at.
+          duration_meta = null_list("duration", m)
+          played_at_next = float_of_string(default=0., duration_meta) + np_timestamp()
+          played_at_next_source_value = null_float_zero(source.duration(src)) + np_timestamp()
+
+          np.{
+            playing_next =
+              {
+                played_at = played_at_next,
+                played_at_source_value = played_at_next_source_value,
+                playlist = next_playlist(),
+                song =
+                  {
+                    text = "#{next_title()} - #{next_artist()}",
+                    title = next_title(),
+                    artist = next_artist(),
+                    album = next_album()
+                  }
+              }
+          }
+        end,
+    omfm_0
+  )
 omfm_0 = amplify(1., override="liq_amplify", omfm_0)
 
 %include "../lib/crossfade.liq"

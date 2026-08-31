@@ -74,7 +74,7 @@ services:
   centrifugo:
     container_name: centrifugo
     restart: always
-    image: centrifugo/centrifugo:latest
+    image: centrifugo/centrifugo:v6.6.0
     volumes:
       - ./docker/centrifugo/config.toml:/centrifugo/config.toml
     command: centrifugo -c config.toml

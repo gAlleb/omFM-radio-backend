@@ -20,6 +20,10 @@ edit_icecast_config() {
   xml-edit "$@" /etc/icecast.xml
 }
 
+# После подстановки в файле лежат настоящие пароли, а icecast при старте
+# предупреждает о правах на чтение для всех — закрываем.
+chmod 600 /etc/icecast.xml 2>/dev/null || true
+
 edit_icecast_config source-password "$ICECAST_SOURCE_PASSWORD"
 edit_icecast_config relay-password "$ICECAST_RELAY_PASSWORD"
 edit_icecast_config admin-password "$ICECAST_ADMIN_PASSWORD"

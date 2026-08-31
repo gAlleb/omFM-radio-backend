@@ -13,7 +13,6 @@ check = make_check(6000.)
 relax = playlist(check_next=check,prefix='annotate:liq_blankskip="false",playlist="omFM Main Playlist":',id="omFM Main Playlist", reload_mode="watch", "/home/radio/playlist/icecast-playlist-relax.m3u")
 lofi2 = playlist(prefix='annotate:playlist="Night Lofi Mix":',id="Night Lofi Mix",reload_mode="watch", loop=true, "/home/radio/playlist/icecast-playlist-lofi.m3u")
 jinglesomfm = playlist(prefix='annotate:jingle_mode=true:', mode='normal',reload_mode="watch","/home/radio/music/jingles/omfm/main")
-omsecurity = single(id="Welcome to omFM!","/home/radio/music/jingles/omfm/security/1.mp3") 
 mantraom528 = single(id="Morning mantra",'annotate:liq_cue_file=false,playlist="Morning mantra":/home/radio/music/Mantra528Hz.mp3')
 
 #CLASSIC @ omFM

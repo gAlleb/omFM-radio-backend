@@ -19,6 +19,10 @@ def null_float(f)
   f == infinity ? null() : f
 end
 
+def null_float_zero(f)
+  f == infinity ? 0.0 : f
+end
+
 def get_cover_base64(~coverart_mime=null(), ~base64=true, m) =
   c = metadata.cover(coverart_mime=coverart_mime, m)
   if null.defined(c) then
@@ -132,9 +136,10 @@ def send_mq_event(payload)
   ()
 end
 
-# Базовая запись np. Станция получает её в `extend` и может дополнить
-# своими полями — так cdp добавляет playing_next, которого у omfm нет
-# (при нескольких плейлистах следующий трек не предсказать).
+# Базовая запись np. Станция получает её в `extend` вместе с метаданными
+# текущего трека и самим источником — этого хватает, чтобы посчитать время
+# старта следующего трека. Так cdp добавляет playing_next, которого у omfm
+# нет: при нескольких плейлистах следующий трек не предсказать.
 def build_np(~extend, ~default_title, src)
   m = src.last_metadata() ?? []
 
@@ -157,7 +162,7 @@ def build_np(~extend, ~default_title, src)
     song_history = songHistory()
   }
 
-  extend(base)
+  extend(base, m, src)
 end
 
 # Во время джингла наружу отдаются метаданные предыдущего трека.
@@ -175,7 +180,7 @@ end
 # Навешивает всю обвязку now-playing и возвращает источник, прошедший
 # handle_jingle_mode. Возвращаемое значение обязательно использовать
 # дальше по цепочке — на нём построены /nowplaying и /metadata.
-def with_nowplaying(~extend=fun(np) -> np, src)
+def with_nowplaying(~extend=fun(np, _, _) -> np, src)
   src.on_metadata(synchronous=false, save_history)
 
   def write_data()
