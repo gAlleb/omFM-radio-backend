@@ -1,0 +1,75 @@
+{
+  "stations": {
+    "omfm": {
+      "kind": "local",
+      "name": "omFM",
+      "mount": "/stream",
+      "monitor": true,
+      "shortcode": "radio",
+      "harborPort": 8007
+    },
+    "cdp": {
+      "kind": "local",
+      "name": "Cafe De Paris",
+      "mount": "/cdp",
+      "monitor": true,
+      "shortcode": "cdp",
+      "harborPort": 8008
+    },
+    "rock": {
+      "kind": "relay",
+      "name": "Total Rock",
+      "mount": "/rock",
+      "monitor": true,
+      "azuracastId": 1
+    },
+    "terra": {
+      "kind": "relay",
+      "name": "Terra",
+      "mount": "/terra",
+      "monitor": true,
+      "azuracastId": 6
+    },
+    "core": {
+      "kind": "relay",
+      "name": "Core",
+      "mount": "/core",
+      "monitor": true,
+      "azuracastId": 7
+    },
+    "coma": {
+      "kind": "relay",
+      "name": "Coma",
+      "mount": "/coma",
+      "monitor": true,
+      "azuracastId": 4
+    },
+    "chill": {
+      "kind": "relay",
+      "name": "Chill",
+      "mount": "/chill",
+      "monitor": true,
+      "azuracastId": 8
+    },
+    "ashes": {
+      "kind": "relay",
+      "name": "Ashes",
+      "mount": "/ashes",
+      "monitor": true,
+      "azuracastId": 9
+    },
+    "noir": {
+      "kind": "relay",
+      "name": "Noir",
+      "mount": "/noir",
+      "monitor": true,
+      "azuracastId": 10
+    },
+    "totalrock": {
+      "kind": "relay",
+      "name": "Total Rock (внешний)",
+      "mount": "/totalrock",
+      "monitor": false
+    }
+  }
+}

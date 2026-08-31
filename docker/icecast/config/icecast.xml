@@ -41,51 +41,47 @@
         <header type="cors" name="Access-Control-Expose-Headers" />
     </http-headers>
 
+<!-- GENERATED from stations.toml — не править вручную, см. make apply -->
     <relay>
         <local-mount>/rock</local-mount>
         <on-demand>false</on-demand>
         <upstream type="normal">
             <uri>http://radio.omfm.ru:8000/radio.aac</uri>
-            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>  
+            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>
         </upstream>
-        <!-- <charset>UTF-8</charset> -->
-    </relay> 
-    <relay>
-        <local-mount>/coma</local-mount>
-        <on-demand>false</on-demand>
-        <upstream type="normal">
-            <uri>http://radio.omfm.ru:8020/coma.aac</uri>
-            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>  
-        </upstream>
-        <!-- <charset>UTF-8</charset> -->
-    </relay> 
+    </relay>
     <relay>
         <local-mount>/terra</local-mount>
         <on-demand>false</on-demand>
         <upstream type="normal">
             <uri>http://radio.omfm.ru:8040/terra.aac</uri>
-            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>  
+            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>
         </upstream>
-        <!-- <charset>UTF-8</charset> -->
-    </relay> 
+    </relay>
     <relay>
         <local-mount>/core</local-mount>
         <on-demand>false</on-demand>
         <upstream type="normal">
             <uri>http://radio.omfm.ru:8050/core.aac</uri>
-            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>  
+            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>
         </upstream>
-        <!-- <charset>UTF-8</charset> -->
-    </relay> 
+    </relay>
+    <relay>
+        <local-mount>/coma</local-mount>
+        <on-demand>false</on-demand>
+        <upstream type="normal">
+            <uri>http://radio.omfm.ru:8020/coma.aac</uri>
+            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>
+        </upstream>
+    </relay>
     <relay>
         <local-mount>/chill</local-mount>
         <on-demand>false</on-demand>
         <upstream type="normal">
             <uri>http://radio.omfm.ru:8060/chill.aac</uri>
-            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>  
+            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>
         </upstream>
-        <!-- <charset>UTF-8</charset> -->
-    </relay> 
+    </relay>
     <relay>
         <local-mount>/ashes</local-mount>
         <on-demand>false</on-demand>
@@ -93,7 +89,6 @@
             <uri>http://radio.omfm.ru:8070/ashes.aac</uri>
             <relay-shoutcast-metadata>false</relay-shoutcast-metadata>
         </upstream>
-        <!-- <charset>UTF-8</charset> -->
     </relay>
     <relay>
         <local-mount>/noir</local-mount>
@@ -102,7 +97,6 @@
             <uri>http://radio.omfm.ru:8090/noir.aac</uri>
             <relay-shoutcast-metadata>false</relay-shoutcast-metadata>
         </upstream>
-        <!-- <charset>UTF-8</charset> -->
     </relay>
     <relay>
         <local-mount>/totalrock</local-mount>
@@ -111,49 +105,18 @@
             <uri>http://s3.citrus3.com:8056/stream</uri>
             <relay-shoutcast-metadata>false</relay-shoutcast-metadata>
         </upstream>
-        <!-- <charset>UTF-8</charset> -->
     </relay>
     <mount type="normal">
-        <mount-name>/totalrock</mount-name>
-        <fallback-mount>/fallback-[192].aac</fallback-mount>
-        <fallback-override>all</fallback-override>
+        <mount-name>/stream</mount-name>
         <charset>UTF-8</charset>
+        <fallback-mount>/coma</fallback-mount>
+        <fallback-override>all</fallback-override>
     </mount>
     <mount type="normal">
-        <mount-name>/core</mount-name>
+        <mount-name>/cdp</mount-name>
+        <charset>UTF-8</charset>
         <fallback-mount>/fallback-[192].aac</fallback-mount>
         <fallback-override>all</fallback-override>
-        <charset>UTF-8</charset>
-    </mount>
-    <mount type="normal">
-        <mount-name>/terra</mount-name>
-        <fallback-mount>/fallback-[192].aac</fallback-mount>
-        <fallback-override>all</fallback-override>
-        <charset>UTF-8</charset>
-    </mount>
-     <mount type="normal">
-        <mount-name>/chill</mount-name>
-        <fallback-mount>/fallback-[192].aac</fallback-mount>
-        <fallback-override>all</fallback-override>
-        <charset>UTF-8</charset>
-    </mount>
-    <mount type="normal">
-        <mount-name>/ashes</mount-name>
-        <fallback-mount>/fallback-[192].aac</fallback-mount>
-        <fallback-override>all</fallback-override>
-        <charset>UTF-8</charset>
-    </mount>
-    <mount type="normal">
-        <mount-name>/noir</mount-name>
-        <fallback-mount>/fallback-[192].aac</fallback-mount>
-        <fallback-override>all</fallback-override>
-        <charset>UTF-8</charset>
-    </mount>
-    <mount type="normal">
-        <mount-name>/coma</mount-name>
-        <fallback-mount>/fallback-[192].aac</fallback-mount>
-        <fallback-override>all</fallback-override>
-        <charset>UTF-8</charset>
     </mount>
     <mount type="normal">
         <mount-name>/rock</mount-name>
@@ -161,19 +124,49 @@
         <fallback-mount>/fallback-[192].aac</fallback-mount>
         <fallback-override>all</fallback-override>
     </mount>
-    <mount type="normal"> 
-        <mount-name>/stream</mount-name> 
+    <mount type="normal">
+        <mount-name>/terra</mount-name>
         <charset>UTF-8</charset>
-        <!-- <fallback-mount>/fallback-[192].aac</fallback-mount> -->
-        <fallback-mount>/coma</fallback-mount>
+        <fallback-mount>/fallback-[192].aac</fallback-mount>
         <fallback-override>all</fallback-override>
     </mount>
     <mount type="normal">
-        <mount-name>/cdp</mount-name>
+        <mount-name>/core</mount-name>
         <charset>UTF-8</charset>
-        <fallback-mount>/fallback-[192].aac</fallback-mount>    
+        <fallback-mount>/fallback-[192].aac</fallback-mount>
         <fallback-override>all</fallback-override>
     </mount>
+    <mount type="normal">
+        <mount-name>/coma</mount-name>
+        <charset>UTF-8</charset>
+        <fallback-mount>/fallback-[192].aac</fallback-mount>
+        <fallback-override>all</fallback-override>
+    </mount>
+    <mount type="normal">
+        <mount-name>/chill</mount-name>
+        <charset>UTF-8</charset>
+        <fallback-mount>/fallback-[192].aac</fallback-mount>
+        <fallback-override>all</fallback-override>
+    </mount>
+    <mount type="normal">
+        <mount-name>/ashes</mount-name>
+        <charset>UTF-8</charset>
+        <fallback-mount>/fallback-[192].aac</fallback-mount>
+        <fallback-override>all</fallback-override>
+    </mount>
+    <mount type="normal">
+        <mount-name>/noir</mount-name>
+        <charset>UTF-8</charset>
+        <fallback-mount>/fallback-[192].aac</fallback-mount>
+        <fallback-override>all</fallback-override>
+    </mount>
+    <mount type="normal">
+        <mount-name>/totalrock</mount-name>
+        <charset>UTF-8</charset>
+        <fallback-mount>/fallback-[192].aac</fallback-mount>
+        <fallback-override>all</fallback-override>
+    </mount>
+<!-- GENERATED end -->
     <!-- Relays can also go into a <mount type="normal"> section -->
     <!--
     <mount type="normal">

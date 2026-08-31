@@ -5,6 +5,7 @@ RUN mkdir -p /home/node/app
 WORKDIR /home/node/app
 
 COPY ./docker/omfmapi/app/package*.json ./docker/omfmapi/app/server.js ./
+COPY ./docker/generated/stations.json ./
 
 RUN chown -R node:node /home/node/app
 

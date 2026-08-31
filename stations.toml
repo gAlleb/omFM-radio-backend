@@ -1,0 +1,125 @@
+# ============================================================
+#  Реестр станций omFM — единственный источник правды.
+#
+#  После правки этого файла:   make apply
+#  Проверить, что всё сгенерировано:   make check
+#
+#  Из него генерируются:
+#    docker/generated/stations.json          (читают omfmapi и listeners_monitor)
+#    docker/icecast/config/icecast.xml       (секции <relay> и <mount>)
+#    docker/liquidsoap/supervisord/...conf   (секции [program:...])
+#    docker-compose.yaml                     (проброс портов liquidsoap)
+#  Всё перечисленное — между маркерами GENERATED, руками не править.
+#
+#  Порядок станций здесь задаёт порядок полей в ответе /listeners.
+# ============================================================
+
+# --- kind = "local": своя станция, играет наш Liquidsoap ---------------------
+#   Нужны: shortcode, harbor_port, telnet_port, hls_playlist, а также
+#   description/genre/url — они уходят в output.icecast.
+#
+# --- kind = "relay": ретрансляция чужого потока ------------------------------
+#   Нужен upstream. azuracast_id указывается, только если станция живёт
+#   на нашем AzuraCast и с него можно забрать список слушателей.
+#
+#   monitor = false — станция не попадает в статистику слушателей вообще.
+
+[stations.omfm]
+kind         = "local"
+name         = "omFM"
+shortcode    = "radio"          # канал Centrifugo: station:radio
+mount        = "/stream"
+fallback     = "/coma"
+description  = "For meditation and relaxation"
+genre        = "It's music for your ears"
+url          = "https://omfm.ru"
+harbor_port  = 8007
+telnet_port  = 1234
+hls_playlist = "stream.m3u8"
+monitor      = true
+
+[stations.cdp]
+kind         = "local"
+name         = "Cafe De Paris"
+shortcode    = "cdp"
+mount        = "/cdp"
+fallback     = "/fallback-[192].aac"
+description  = "Cafe De Paris"
+genre        = "It's Cafe but like you are in Paris. Oh, and music! Music, Paris, mon pote! Deal with it!"
+url          = "https://omfm.ru"
+harbor_port  = 8008
+telnet_port  = 1235
+hls_playlist = "cdp.m3u8"
+monitor      = true
+
+[stations.rock]
+kind         = "relay"
+name         = "Total Rock"
+mount        = "/rock"
+fallback     = "/fallback-[192].aac"
+upstream     = "http://radio.omfm.ru:8000/radio.aac"
+azuracast_id = 1
+monitor      = true
+
+[stations.terra]
+kind         = "relay"
+name         = "Terra"
+mount        = "/terra"
+fallback     = "/fallback-[192].aac"
+upstream     = "http://radio.omfm.ru:8040/terra.aac"
+azuracast_id = 6
+monitor      = true
+
+[stations.core]
+kind         = "relay"
+name         = "Core"
+mount        = "/core"
+fallback     = "/fallback-[192].aac"
+upstream     = "http://radio.omfm.ru:8050/core.aac"
+azuracast_id = 7
+monitor      = true
+
+[stations.coma]
+kind         = "relay"
+name         = "Coma"
+mount        = "/coma"
+fallback     = "/fallback-[192].aac"
+upstream     = "http://radio.omfm.ru:8020/coma.aac"
+azuracast_id = 4
+monitor      = true
+
+[stations.chill]
+kind         = "relay"
+name         = "Chill"
+mount        = "/chill"
+fallback     = "/fallback-[192].aac"
+upstream     = "http://radio.omfm.ru:8060/chill.aac"
+azuracast_id = 8
+monitor      = true
+
+[stations.ashes]
+kind         = "relay"
+name         = "Ashes"
+mount        = "/ashes"
+fallback     = "/fallback-[192].aac"
+upstream     = "http://radio.omfm.ru:8070/ashes.aac"
+azuracast_id = 9
+monitor      = true
+
+[stations.noir]
+kind         = "relay"
+name         = "Noir"
+mount        = "/noir"
+fallback     = "/fallback-[192].aac"
+upstream     = "http://radio.omfm.ru:8090/noir.aac"
+azuracast_id = 10
+monitor      = true
+
+# Внешний релей: не наш AzuraCast, слушателей по нему не собираем.
+[stations.totalrock]
+kind     = "relay"
+name     = "Total Rock (внешний)"
+mount    = "/totalrock"
+fallback = "/fallback-[192].aac"
+upstream = "http://s3.citrus3.com:8056/stream"
+monitor  = false

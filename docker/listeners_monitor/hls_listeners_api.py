@@ -13,9 +13,13 @@ activity_window = 20
 output_file = '/tmp/listeners.json'
 refresh_interval = 20
 
-# Retrieve stream names from environment variables, with defaults
-# STREAM_NAMES = os.getenv("STREAM_NAMES", "cdp,omfm,rock,terra,coma,chill,core").split(",")
-STREAM_NAMES = ("cdp,omfm,rock,terra,coma,chill,core,ashes,noir").split(",")
+# Реестр станций: сгенерирован из stations.toml, руками не править.
+STATIONS_FILE = os.environ.get("STATIONS_FILE", "/app/stations.json")
+with open(STATIONS_FILE, encoding="utf-8") as _fh:
+    STATIONS = json.load(_fh)["stations"]
+
+# В статистику попадают только станции с monitor = true.
+STREAM_NAMES = [name for name, st in STATIONS.items() if st.get("monitor", True)]
 
 # Escape stream names for use in regex
 ESCAPED_STREAM_NAMES = [re.escape(name) for name in STREAM_NAMES]
@@ -38,17 +42,11 @@ api_endpoint = 'http://omfmapi:9999/listeners_stat'
 FINDIP_TOKEN = os.environ["FINDIP_TOKEN"]
 geo_api_url = "https://api.findip.net/{IP_ADDRESS}/?token=" + FINDIP_TOKEN
 
-#Icestats URLS
+# Адреса icecast listclients — строятся из mount каждой станции.
+ICECAST_ADMIN_BASE = os.environ.get("ICECAST_ADMIN_BASE", "https://stream.omfm.ru")
 ICESTATS_URLS = {
-    "cdp": "https://stream.omfm.ru/admin/listclients?mount=/cdp",
-    "rock": "https://stream.omfm.ru/admin/listclients?mount=/rock",
-    "terra": "https://stream.omfm.ru/admin/listclients?mount=/terra",
-    "coma": "https://stream.omfm.ru/admin/listclients?mount=/coma",
-    "chill": "https://stream.omfm.ru/admin/listclients?mount=/chill",
-    "omfm": "https://stream.omfm.ru/admin/listclients?mount=/stream",  # or /omfm if that works
-    "core": "https://stream.omfm.ru/admin/listclients?mount=/core",
-    "ashes": "https://stream.omfm.ru/admin/listclients?mount=/ashes",
-    "noir": "https://stream.omfm.ru/admin/listclients?mount=/noir",
+    name: f"{ICECAST_ADMIN_BASE}/admin/listclients?mount={STATIONS[name]['mount']}"
+    for name in STREAM_NAMES
 }
 
 def read_secret_file(secret_name):
@@ -331,28 +329,10 @@ def update_listener_status(connected_listeners, activity_window, refresh_interva
 
 def generate_output(connected_listeners, output_file):
     """Generates JSON output of the connected listeners, including listener counts."""
-    output_data = {
-        'total_listeners': {
-            'omfm': 0,  # Initialize all to zero
-            'cdp': 0,
-            'rock': 0,
-            'terra': 0,
-            'core': 0,
-            'coma': 0,
-            'chill': 0,
-            'ashes': 0,
-	    'noir': 0,
-        },
-        'omfm': [],  # Initialize all to empty lists
-        'cdp': [],
-        'rock': [],
-        'terra': [],
-        'core': [],
-        'coma': [],
-        'chill': [],
-        'ashes': [],
-        'noir': [],
-    }
+    output_data = {'total_listeners': {name: 0 for name in STREAM_NAMES}}
+    for name in STREAM_NAMES:
+        output_data[name] = []
+
     # output_data = {}
     # output_data['total_listeners'] = {}
     for stream_name, listeners in connected_listeners.items():

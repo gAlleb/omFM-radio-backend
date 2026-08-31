@@ -113,10 +113,12 @@ services:
       - ./docker/liquidsoap/log:/var/log/supervisor
       # - ./docker/liquidsoap/rootfs/home/radio/liquidsoap/test_gaps/log:/home/radio/liquidsoap/test_gaps/log
     ports:
+      # GENERATED from stations.toml — не править вручную, см. make apply
        - 127.0.0.1:8007:8007
-       - 127.0.0.1:8008:8008
        - 127.0.0.1:1234:1234
+       - 127.0.0.1:8008:8008
        - 127.0.0.1:1235:1235
+# GENERATED end
     networks:
       - omfm-network
     depends_on:

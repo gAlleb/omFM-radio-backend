@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const express = require('express');
 const axios = require('axios');
 const https = require('https');
@@ -34,27 +35,23 @@ const SPOTIFY_CLIENT_SECRET = requireEnv('SPOTIFY_CLIENT_SECRET');
 const AZURACAST_BASE = process.env.AZURACAST_BASE || 'https://radio.omfm.ru';
 const CENTRIFUGO_URL = process.env.CENTRIFUGO_URL || 'http://centrifugo:9998/api/publish';
 const port = process.env.PORT || 9999;
+const STATIONS_FILE = process.env.STATIONS_FILE || './stations.json';
 
-// Реестр станций.
-//   kind: 'local' — своя, играет наш Liquidsoap и постит сюда np
-//   kind: 'relay' — ретранслируется с AzuraCast, np оттуда не приходит
+// Реестр станций читается из сгенерированного stations.json —
+// единственный источник правды это stations.toml в корне проекта.
 // Порядок ключей значим: он задаёт порядок полей в ответе /listeners.
-// На стадии 2 переедет в общий stations.yaml.
-const STATIONS = {
-  omfm: { kind: 'local', shortcode: 'radio', legacyPath: '/liq' },
-  cdp: { kind: 'local', shortcode: 'cdp', legacyPath: '/liq2' },
-  rock: { kind: 'relay', azuracastId: 1 },
-  terra: { kind: 'relay', azuracastId: 6 },
-  core: { kind: 'relay', azuracastId: 7 },
-  coma: { kind: 'relay', azuracastId: 4 },
-  chill: { kind: 'relay', azuracastId: 8 },
-  ashes: { kind: 'relay', azuracastId: 9 },
-  noir: { kind: 'relay', azuracastId: 10 },
-};
+const STATIONS = JSON.parse(fs.readFileSync(STATIONS_FILE, 'utf8')).stations;
 
-const STATION_KEYS = Object.keys(STATIONS);
+// Legacy-эндпоинты, на которые Liquidsoap постит до перехода на /np/:station.
+const LEGACY_PATHS = { omfm: '/liq', cdp: '/liq2' };
+
+// Только станции, участвующие в статистике слушателей.
+const STATION_KEYS = Object.keys(STATIONS).filter((key) => STATIONS[key].monitor !== false);
 const LOCAL_STATIONS = STATION_KEYS.filter((key) => STATIONS[key].kind === 'local');
-const RELAY_STATIONS = STATION_KEYS.filter((key) => STATIONS[key].kind === 'relay');
+// Релеи, у которых есть id на нашем AzuraCast — только с них тянем слушателей.
+const RELAY_STATIONS = STATION_KEYS.filter(
+  (key) => STATIONS[key].kind === 'relay' && STATIONS[key].azuracastId !== undefined
+);
 
 const centrifugoApiClient = axios.create({
   baseURL: CENTRIFUGO_URL,
@@ -271,7 +268,7 @@ app.post('/np/:station', (req, res) => {
 // Совместимость: Liquidsoap пока постит на /liq и /liq2.
 // Убрать, когда станции переедут на /np/:station (стадия 3).
 for (const key of LOCAL_STATIONS) {
-  const legacyPath = STATIONS[key].legacyPath;
+  const legacyPath = LEGACY_PATHS[key];
   if (!legacyPath) continue;
 
   app.post(legacyPath, (req, res) => {
