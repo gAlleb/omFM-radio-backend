@@ -122,17 +122,24 @@ make logs
 Все пароли, ключи и токены живут в `.env` в корне — он в `.gitignore`
 и в репозиторий не попадает. Шаблон: [.env.example](.env.example).
 
-Файлы `docker/centrifugo/config.toml` и `docker/listeners_monitor/*.txt`
-тоже вне git, рядом лежат `.example`. `*.txt` не редактируются руками —
-они пересобираются из `.env` командой `make secrets`.
+Вне git также `docker/centrifugo/config.toml` (рядом лежит `.example`),
+`docker/listeners_monitor/*.txt` и TLS-сертификат Icecast
+`docker/icecast/config/concat-om.pem` — в нём приватный ключ.
+Файлы `*.txt` руками не редактируются: они пересобираются из `.env`
+командой `make secrets`.
 
 Первичная настройка:
 
 ```bash
 cp .env.example .env                              # заполнить значения
 cp docker/centrifugo/config.toml.example docker/centrifugo/config.toml
+# сертификат скопировать отдельно, в репозитории его нет:
+#   scp concat-om.pem сервер:.../docker/icecast/config/
+chmod 600 docker/icecast/config/concat-om.pem
 make secrets && make apply && make up
 ```
+
+Без `concat-om.pem` сборка Icecast упадёт на `COPY` — это ожидаемо.
 
 Icecast не стартует, если обязательные переменные не заданы — это
 намеренно, чтобы не подняться с плейсхолдером вместо пароля.
