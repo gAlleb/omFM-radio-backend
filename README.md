@@ -17,6 +17,75 @@ Liquidsoap ──POST /np/:station──> omfmapi ──publish──> Centrifug
     AzuraCast API ───────────────────┘
 ```
 
+## What it is made of
+
+| Service | Port | Role |
+|---|---|---|
+| `liquidsoap-<station>` | `127.0.0.1:800x` harbor, `127.0.0.1:123x` telnet | plays one own station |
+| `icecast` | `8000`, `8443` — public | serves mounts and relays |
+| `omfmapi` | `127.0.0.1:9999` | the hub everything reports to |
+| `listeners_monitor` | — | counts listeners across HLS and Icecast |
+| `centrifugo` | `127.0.0.1:9998` | SSE broadcast to the frontend |
+
+**Liquidsoap** — one container per own station. It plays the schedule, encodes
+to Icecast and writes HLS segments at the same time, and once a second POSTs the
+current now-playing state to omfmapi. It also exposes a harbor HTTP port
+(`/nowplaying`, `/metadata`, `/queueFile`, `/queuePlaylist`, `/skipQueue`) and a
+telnet port — both bound to localhost.
+
+**Icecast** — serves the mounts of our own stations and relays remote ones (our
+AzuraCast at `radio.omfm.ru` plus a few third-party streams). The only service
+open to the outside world.
+
+**omfmapi** — Node/Express. Everything reports to it, and it is the only thing
+that talks to Centrifugo:
+
+- accepts `POST /np/:station` from Liquidsoap and republishes the state to the
+  `station:<shortcode>` channel **once every 15 seconds** — the stations push
+  every second, omfmapi throttles;
+- accepts `POST /listeners_stat` from the HLS monitor;
+- polls the AzuraCast API every 30 seconds for the relays that have an
+  `azuracast_id`;
+- merges all three sources and publishes the result to `station:listeners`;
+- serves `GET /np`, `GET /listeners`, `GET /spotifyToken` for reading.
+
+The write endpoints require Basic auth, with credentials coming from docker
+secrets.
+
+**listeners_monitor — the HLS monitor.** A separate Python container. Our own
+stations are listened to over two different transports, and this is the only
+place where both are counted as one audience. Every 20 seconds it:
+
+1. tails the nginx access log (`/var/log/nginx/hls-omfm.access.log`, mounted
+   read-only) and picks out the `.ts` / `.m3u8` requests — those are the HLS
+   listeners;
+2. queries Icecast `/admin/listclients` for every station's mount, all mounts in
+   parallel;
+3. resolves geo data for new IPs through findip.net, cached for 24 hours;
+4. treats a listener as live while it has been seen within the last 60 seconds
+   (`refresh_interval × 3`), then POSTs the whole picture to omfmapi.
+
+Only stations with `monitor = true` are counted, and HLS listeners are
+recognised by the request path — so nginx has to actually write those requests
+into that log file.
+
+**Centrifugo** — uni_sse, broadcast only. Channels `station:<shortcode>` and
+`station:listeners`, which nuxt-om subscribes to.
+
+### Icecast is built from source, off master
+
+`docker/icecast/Dockerfile` clones `icecast-server` and `icecast-libigloo`
+straight from gitlab.xiph.org and builds them — with no tag and no pinned
+commit. The image therefore always holds the **development version**, not a
+release: whatever upstream master looked like on the day of the build. libigloo
+is built from source for the same reason, to get ≥ 0.9.4.
+
+The price is that the build is not reproducible: two rebuilds on different days
+can yield two different Icecasts, and `docker compose up -d --build icecast`
+after adding a station picks up whatever landed upstream in the meantime. If a
+rebuild suddenly breaks something, look here first — the fix is to pin the
+`git clone` to a known-good commit.
+
 ## Stations: adding and removing
 
 The single source of truth is [stations.toml](stations.toml). Everything else
