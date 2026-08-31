@@ -1,38 +1,63 @@
-#settings.log.file := true
-#settings.log.file.path := "/home/radio/liquidsoap/cdp/log/cdp.log"
-settings.log.stdout := true
-#settings.log.level := 3
-settings.clock.leak_warning := 5
-settings.server.telnet := true
-settings.server.telnet.port := 1235
+# Станция «Cafe De Paris».
+#
+# Здесь только то, что для неё специфично: источники, расписание и
+# окно неповтора. Вся общая обвязка — в ../lib, параметры станции
+# приходят из окружения (генерируются из stations.toml).
 
-settings.harbor.bind_addrs.set(["0.0.0.0"])
-settings.encoder.metadata.export.set(["artist","title","album","song", "on_air"])
-#interactive.harbor(port=8008)
-settings.request.deprecated_on_air_metadata := true 
-%include "autocue/autocue.cue_file-2.3.0.liq"
+%include "../lib/settings.liq"
+%include "../lib/playlog.liq"
 
- settings.autocue.cue_file.path := "cue_file"
-# settings.autocue.cue_file.fade_in := 0.1
-# settings.autocue.cue_file.fade_out := 2.5
-# settings.autocue.cue_file.timeout := 60.0
-# settings.autocue.cue_file.target := -18.0
-# settings.autocue.cue_file.silence := -42.0
-# settings.autocue.cue_file.overlay := -8.0
-# settings.autocue.cue_file.longtail := 15.0
-# settings.autocue.cue_file.overlay_longtail := -15.0
- settings.autocue.cue_file.noclip := false  # clipping prevention
-# settings.autocue.cue_file.blankskip := false
-# settings.autocue.cue_file.unify_loudness_correction := false
-# settings.autocue.cue_file.write_tags := false
-# settings.autocue.cue_file.force_analysis := false
- settings.autocue.cue_file.nice := true  # Linux only!
-#settings.autocue.target_cross_duration := settings.autocue.cue_file.fade_out()
+# Следующий трек знаем только потому, что плейлист один: check_next
+# заранее резолвит кандидата. У omfm с его switch/rotate так нельзя.
+next_title = ref("")
+next_artist = ref("")
+next_playlist = ref("")
+next_album = ref("")
 
-# `enable_autocue_metadata()` will autocue ALL files Liquidsoap processes.
-# You can disable it for selected sources using 'annotate:liq_cue_file=false'.
-# Remember you won't get `liq_amplify` data then -- expect loudness jumps!
-enable_autocue_metadata()
+def remember_next(m)
+  next_title := m["title"]
+  next_artist := m["artist"]
+  next_playlist := m["playlist"]
+  next_album := m["album"]
+end
 
+check = make_check(on_accept=remember_next, 3600.)
 
-%include "omfm.liq"
+# --- источники и расписание -------------------------------------------------
+cdp = playlist(check_next=check,prefetch=1,prefix='annotate:liq_blankskip="false",playlist="Cafe De Paris":',id="Cafe De Paris", reload_mode="watch", "/home/radio/playlist/icecast-playlist-cdp.m3u")
+jingles = playlist(prefix='annotate:jingle_mode=true:', reload_mode="watch", "/home/radio/music/jingles/cdp")
+
+omfm_0 = rotate(weights=[1,4], [jingles, cdp]) 
+# --- общая обвязка ----------------------------------------------------------
+
+%include "../lib/queues.liq"
+%include "../lib/nowplaying.liq"
+
+omfm_0 = with_queues(omfm_0)
+omfm_0 = with_nowplaying(extend=
+  fun (np) ->
+    np.{
+      playing_next =
+        {
+          playlist = next_playlist(),
+          song =
+            {
+              text = "#{next_title()} - #{next_artist()}",
+              title = next_title(),
+              artist = next_artist(),
+              album = next_album()
+            }
+        }
+    },
+  omfm_0)
+omfm_0 = amplify(1., override="liq_amplify", omfm_0)
+
+%include "../lib/crossfade.liq"
+
+omfm_0 = crossfaded(omfm_0)
+omfm = mksafe(omfm_0)
+
+%include "../lib/output.liq"
+
+outputs(omfm)
+register_skip(omfm)

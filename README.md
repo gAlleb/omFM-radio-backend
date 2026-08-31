@@ -48,10 +48,30 @@ telnet_port  = 1236
 hls_playlist = "night.m3u8"
 ```
 
-Для своей станции дополнительно нужен каталог со скриптом:
-`docker/liquidsoap/rootfs/home/radio/liquidsoap/night/` с `index.liq`
-(проще всего скопировать с существующей станции). Volume'ы, порты и
-healthcheck генерируются сами — пути берутся из секции `[paths]`.
+Для своей станции дополнительно нужен один файл — `index.liq` в
+`docker/liquidsoap/rootfs/home/radio/liquidsoap/night/`. В нём только
+источники и расписание; вся общая обвязка подключается из `../lib`,
+а параметры станции приходят из окружения. Проще всего взять за образец
+`omfm/index.liq` или `cdp/index.liq`.
+
+Volume'ы, порты, healthcheck и переменные окружения генерируются сами —
+пути берутся из секции `[paths]`.
+
+### Как устроены скрипты Liquidsoap
+
+```
+lib/settings.liq     параметры станции из окружения + общие настройки
+lib/playlog.liq      журнал сыгранного и проверка на повтор
+lib/queues.liq       очереди ручного вброса + HTTP-эндпоинты
+lib/nowplaying.liq   история, отправка в omfmapi, /nowplaying, /metadata
+lib/crossfade.liq    переходы между треками
+lib/output.liq       выходы Icecast и HLS
+<станция>/index.liq  ТОЛЬКО источники и расписание
+```
+
+Станция может дополнить payload своим блоком: так cdp добавляет
+`playing_next`, которого у omfm нет — при нескольких плейлистах и
+расписании следующий трек достоверно не предсказать.
 
 `make apply` разложит остальное:
 

@@ -34,6 +34,7 @@ playlists   = "./docker/liquidsoap/rootfs/home/radio/playlist"
 
 [stations.omfm]
 kind         = "local"
+timezone     = "Europe/Moscow"
 name         = "omFM"
 shortcode    = "radio"          # канал Centrifugo: station:radio
 mount        = "/stream"
@@ -48,6 +49,7 @@ monitor      = true
 
 [stations.cdp]
 kind         = "local"
+timezone     = "Europe/Moscow"
 name         = "Cafe De Paris"
 shortcode    = "cdp"
 mount        = "/cdp"

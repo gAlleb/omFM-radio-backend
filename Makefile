@@ -38,14 +38,20 @@ secrets:
 LIQ_IMAGE ?= savonet/liquidsoap-alpine:v2.4.5
 LIQ_ROOT  := $(CURDIR)/docker/liquidsoap/rootfs/home/radio
 
+# --check не нужны настоящие значения, но порты должны быть числами.
+LIQ_ENV = -e STATION=$$st -e STATION_NAME=x -e STATION_SHORTCODE=x \
+          -e STATION_TIMEZONE=Europe/Moscow -e STATION_MOUNT=/x \
+          -e STATION_DESCRIPTION=x -e STATION_GENRE=x -e STATION_URL=x \
+          -e HARBOR_PORT=8007 -e TELNET_PORT=1234 -e HLS_PLAYLIST=x.m3u8 \
+          -e OMFMAPI_URL=http://omfmapi:9999/np/$$st \
+          -e ICECAST_SOURCE_PASSWORD=x -e OMFMAPI_USER=x -e OMFMAPI_PASSWORD=x \
+          -e LASTFM_API_KEY=x -e LASTFM_API_SECRET=x
+
 liq-check:
 	@rc=0; \
 	for st in $$(python3 -c "import json;print(' '.join(k for k,v in json.load(open('docker/generated/stations.json'))['stations'].items() if v['kind']=='local'))"); do \
 	  printf '  %-8s ' "$$st"; \
-	  if docker run --rm -v "$(LIQ_ROOT):/home/radio:ro" \
-	      -e ICECAST_SOURCE_PASSWORD=x -e OMFMAPI_USER=x -e OMFMAPI_PASSWORD=x \
-	      -e LASTFM_OMFM_API_KEY=x -e LASTFM_OMFM_API_SECRET=x \
-	      -e LASTFM_CDP_API_KEY=x -e LASTFM_CDP_API_SECRET=x \
+	  if docker run --rm -v "$(LIQ_ROOT):/home/radio:ro" $(LIQ_ENV) \
 	      $(LIQ_IMAGE) liquidsoap --check /home/radio/liquidsoap/$$st/index.liq >/dev/null 2>&1; \
 	  then echo "ok"; else echo "ОШИБКА"; rc=1; fi; \
 	done; exit $$rc

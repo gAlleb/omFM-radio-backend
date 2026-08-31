@@ -177,11 +177,41 @@ def gen_compose_services(stations, paths):
         if st["kind"] != "local":
             continue
         harbor, telnet = st["harbor_port"], st["telnet_port"]
+        # json.dumps даёт корректное экранирование для YAML: в описаниях
+        # станций встречаются апострофы, запятые и двоеточия
+        name = json.dumps(st["name"], ensure_ascii=False)
+        shortcode = json.dumps(st["shortcode"], ensure_ascii=False)
+        tz = json.dumps(st.get("timezone", "Europe/Moscow"), ensure_ascii=False)
+        mount = json.dumps(st["mount"], ensure_ascii=False)
+        desc = json.dumps(st.get("description", ""), ensure_ascii=False)
+        genre = json.dumps(st.get("genre", ""), ensure_ascii=False)
+        url = json.dumps(st.get("url", ""), ensure_ascii=False)
+        playlist = json.dumps(st["hls_playlist"], ensure_ascii=False)
+        upper = key.upper()
         blocks.append(
             f"""  liquidsoap-{key}:
     <<: *liquidsoap
     container_name: liquidsoap-{key}
     command: /home/radio/liquidsoap/{key}/index.liq
+    environment:
+      TZ: {tz}
+      STATION: {key}
+      STATION_NAME: {name}
+      STATION_SHORTCODE: {shortcode}
+      STATION_TIMEZONE: {tz}
+      STATION_MOUNT: {mount}
+      STATION_DESCRIPTION: {desc}
+      STATION_GENRE: {genre}
+      STATION_URL: {url}
+      HARBOR_PORT: "{harbor}"
+      TELNET_PORT: "{telnet}"
+      HLS_PLAYLIST: {playlist}
+      OMFMAPI_URL: "http://omfmapi:9999/np/{key}"
+      ICECAST_SOURCE_PASSWORD: ${{ICECAST_SOURCE_PASSWORD:?}}
+      OMFMAPI_USER: ${{OMFMAPI_USER:?}}
+      OMFMAPI_PASSWORD: ${{OMFMAPI_PASSWORD:?}}
+      LASTFM_API_KEY: ${{LASTFM_{upper}_API_KEY:-}}
+      LASTFM_API_SECRET: ${{LASTFM_{upper}_API_SECRET:-}}
     ports:
       - 127.0.0.1:{harbor}:{harbor}
       - 127.0.0.1:{telnet}:{telnet}

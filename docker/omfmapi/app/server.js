@@ -42,9 +42,6 @@ const STATIONS_FILE = process.env.STATIONS_FILE || './stations.json';
 // Порядок ключей значим: он задаёт порядок полей в ответе /listeners.
 const STATIONS = JSON.parse(fs.readFileSync(STATIONS_FILE, 'utf8')).stations;
 
-// Legacy-эндпоинты, на которые Liquidsoap постит до перехода на /np/:station.
-const LEGACY_PATHS = { omfm: '/liq', cdp: '/liq2' };
-
 // Только станции, участвующие в статистике слушателей.
 const STATION_KEYS = Object.keys(STATIONS).filter((key) => STATIONS[key].monitor !== false);
 const LOCAL_STATIONS = STATION_KEYS.filter((key) => STATIONS[key].kind === 'local');
@@ -264,18 +261,6 @@ app.post('/np/:station', (req, res) => {
   acceptNowPlaying(key, req.body);
   res.sendStatus(200);
 });
-
-// Совместимость: Liquidsoap пока постит на /liq и /liq2.
-// Убрать, когда станции переедут на /np/:station (стадия 3).
-for (const key of LOCAL_STATIONS) {
-  const legacyPath = LEGACY_PATHS[key];
-  if (!legacyPath) continue;
-
-  app.post(legacyPath, (req, res) => {
-    acceptNowPlaying(key, req.body);
-    res.sendStatus(200);
-  });
-}
 
 /////////////////////////////////
 ////////////CENTRIFUGO///////////

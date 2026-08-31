@@ -31,7 +31,7 @@ def show_meta(m)
     end
 end
 
-omfm_0.on_metadata(synchronous=false,show_meta)
+
 # Fading/crossing/segueing
 def live_aware_crossfade(old, new) =
     
@@ -67,8 +67,12 @@ def live_aware_crossfade(old, new) =
 
 end
 
-omfm_0 = cross(
-    duration=settings.autocue.cue_file.fade_out(),
-    live_aware_crossfade,
-    omfm_0
-)
+# Показ метаданных в логе и собственно кроссфейд.
+def crossfaded(src)
+    src.on_metadata(synchronous=false, show_meta)
+    cross(
+        duration=settings.autocue.cue_file.fade_out(),
+        live_aware_crossfade,
+        src
+    )
+end

@@ -7,15 +7,6 @@ x-liquidsoap: &liquidsoap
     args:
       - "USER_UID=${USER_UID:-1000}"
       - "USER_GID=${USER_GID:-1000}"
-  environment:
-    - "TZ=Europe/Moscow"
-    - ICECAST_SOURCE_PASSWORD
-    - OMFMAPI_USER
-    - OMFMAPI_PASSWORD
-    - LASTFM_OMFM_API_KEY
-    - LASTFM_OMFM_API_SECRET
-    - LASTFM_CDP_API_KEY
-    - LASTFM_CDP_API_SECRET
   networks:
     - omfm-network
   depends_on:
@@ -110,6 +101,25 @@ services:
     <<: *liquidsoap
     container_name: liquidsoap-omfm
     command: /home/radio/liquidsoap/omfm/index.liq
+    environment:
+      TZ: "Europe/Moscow"
+      STATION: omfm
+      STATION_NAME: "omFM"
+      STATION_SHORTCODE: "radio"
+      STATION_TIMEZONE: "Europe/Moscow"
+      STATION_MOUNT: "/stream"
+      STATION_DESCRIPTION: "For meditation and relaxation"
+      STATION_GENRE: "It's music for your ears"
+      STATION_URL: "https://omfm.ru"
+      HARBOR_PORT: "8007"
+      TELNET_PORT: "1234"
+      HLS_PLAYLIST: "stream.m3u8"
+      OMFMAPI_URL: "http://omfmapi:9999/np/omfm"
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?}
+      OMFMAPI_USER: ${OMFMAPI_USER:?}
+      OMFMAPI_PASSWORD: ${OMFMAPI_PASSWORD:?}
+      LASTFM_API_KEY: ${LASTFM_OMFM_API_KEY:-}
+      LASTFM_API_SECRET: ${LASTFM_OMFM_API_SECRET:-}
     ports:
       - 127.0.0.1:8007:8007
       - 127.0.0.1:1234:1234
@@ -131,6 +141,25 @@ services:
     <<: *liquidsoap
     container_name: liquidsoap-cdp
     command: /home/radio/liquidsoap/cdp/index.liq
+    environment:
+      TZ: "Europe/Moscow"
+      STATION: cdp
+      STATION_NAME: "Cafe De Paris"
+      STATION_SHORTCODE: "cdp"
+      STATION_TIMEZONE: "Europe/Moscow"
+      STATION_MOUNT: "/cdp"
+      STATION_DESCRIPTION: "Cafe De Paris"
+      STATION_GENRE: "It's Cafe but like you are in Paris. Oh, and music! Music, Paris, mon pote! Deal with it!"
+      STATION_URL: "https://omfm.ru"
+      HARBOR_PORT: "8008"
+      TELNET_PORT: "1235"
+      HLS_PLAYLIST: "cdp.m3u8"
+      OMFMAPI_URL: "http://omfmapi:9999/np/cdp"
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?}
+      OMFMAPI_USER: ${OMFMAPI_USER:?}
+      OMFMAPI_PASSWORD: ${OMFMAPI_PASSWORD:?}
+      LASTFM_API_KEY: ${LASTFM_CDP_API_KEY:-}
+      LASTFM_API_SECRET: ${LASTFM_CDP_API_SECRET:-}
     ports:
       - 127.0.0.1:8008:8008
       - 127.0.0.1:1235:1235

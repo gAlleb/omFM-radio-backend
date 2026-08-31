@@ -1,38 +1,87 @@
-#settings.log.file := true
-#settings.log.file.path := "/home/radio/liquidsoap/omfm/log/omfm.log"
-settings.log.stdout := true
-#settings.log.level := 3
-settings.clock.leak_warning := 5
-settings.server.telnet := true
-settings.server.telnet.port := 1234
+# Станция «omFM».
+#
+# Здесь только то, что для неё специфично: источники, расписание и
+# окно неповтора. Вся общая обвязка — в ../lib, параметры станции
+# приходят из окружения (генерируются из stations.toml).
 
-settings.harbor.bind_addrs.set(["0.0.0.0"])
-settings.encoder.metadata.export.set(["artist","title","album","song", "on_air"])
-#interactive.harbor(port=8007)
-settings.request.deprecated_on_air_metadata := true 
-%include "autocue/autocue.cue_file-2.3.0.liq"
+%include "../lib/settings.liq"
+%include "../lib/playlog.liq"
 
- settings.autocue.cue_file.path := "cue_file"
-# settings.autocue.cue_file.fade_in := 0.1
-# settings.autocue.cue_file.fade_out := 2.5
-# settings.autocue.cue_file.timeout := 60.0
-# settings.autocue.cue_file.target := -18.0
-# settings.autocue.cue_file.silence := -42.0
-# settings.autocue.cue_file.overlay := -8.0
-# settings.autocue.cue_file.longtail := 15.0
-# settings.autocue.cue_file.overlay_longtail := -15.0
- settings.autocue.cue_file.noclip := false  # clipping prevention
-# settings.autocue.cue_file.blankskip := false
-# settings.autocue.cue_file.unify_loudness_correction := false
-# settings.autocue.cue_file.write_tags := false
-# settings.autocue.cue_file.force_analysis := false
- settings.autocue.cue_file.nice := true  # Linux only!
-#settings.autocue.target_cross_duration := settings.autocue.cue_file.fade_out()
+check = make_check(6000.)
 
-# `enable_autocue_metadata()` will autocue ALL files Liquidsoap processes.
-# You can disable it for selected sources using 'annotate:liq_cue_file=false'.
-# Remember you won't get `liq_amplify` data then -- expect loudness jumps!
-enable_autocue_metadata()
+# --- источники и расписание -------------------------------------------------
+relax = playlist(check_next=check,prefix='annotate:liq_blankskip="false",playlist="omFM Main Playlist":',id="omFM Main Playlist", reload_mode="watch", "/home/radio/playlist/icecast-playlist-relax.m3u")
+lofi2 = playlist(prefix='annotate:playlist="Night Lofi Mix":',id="Night Lofi Mix",reload_mode="watch", loop=true, "/home/radio/playlist/icecast-playlist-lofi.m3u")
+jinglesomfm = playlist(prefix='annotate:jingle_mode=true:', mode='normal',reload_mode="watch","/home/radio/music/jingles/omfm/main")
+omsecurity = single(id="Welcome to omFM!","/home/radio/music/jingles/omfm/security/1.mp3") 
+mantraom528 = single(id="Morning mantra",'annotate:liq_cue_file=false,playlist="Morning mantra":/home/radio/music/Mantra528Hz.mp3')
+
+#CLASSIC @ omFM
+jinglesclassicomfm = playlist(prefix='annotate:jingle_mode="true":', mode="normal",reload_mode="watch", "/home/radio/music/jingles/omfm/classic/jingle")
+jinglesclassicintroomfm = playlist(prefix='annotate:jingle_mode="true":',mode="normal",reload_mode="watch", "/home/radio/music/jingles/omfm/classic/intro")
+jinglesnightshiftintroomfm = playlist(prefix='annotate:jingle_mode="true":',mode="normal",reload_mode="watch", "/home/radio/music/jingles/omfm/nightshift/intro")
+
+###
+omfmclassic = playlist(prefix='annotate:playlist="Classical Time":',id="Classical Time",reload_mode="watch", loop=true, "/home/radio/playlist/icecast-playlist-classic2.m3u")
+
+#omfmclassichour = switch([ (predicate.at_most(2,{00m-15m}), jinglesclassicintroomfm), ({true}, omfmclassic)])
+#omfmclassichour = switch([(predicate.once({20m-50m}), jinglesclassicomfm),({true}, omfmclassichour)])
+
+suttas = playlist(prefix='annotate:liq_blankskip="false",playlist="Сутры: мудрость Будды":',id="Сутры: мудрость Будды",reload_mode="watch", loop=true, "/home/radio/playlist/icecast-playlist-suttas.m3u")
+nazarenko = playlist(prefix='annotate:liq_blankskip="false",playlist="Длинные Сутры":',id="Длинные Сутры",reload_mode="watch", loop=true, "/home/radio/playlist/icecast-playlist-alexandr_nazarenko_buddhism.m3u")
+audiobooks = playlist(prefix='annotate:playlist="Аудиокниги":',id="Аудиокниги",reload_mode="watch", loop=true, "/mnt/GoogleDrive/radio/music/audiobooks")
+#audiobooks = playlist(prefix='annotate:playlist="Аудиокниги":',id="Аудиокниги",reload_mode="watch", loop=true, "/home/radio/playlist/icecast-playlist-books.m3u")
+#
+#
+#
+#lofi2 = switch([ (predicate.at_most(2,{23h00-23h15}), jinglesnightshiftintroomfm), ({true}, lofi2)])
 
 
-%include "omfm.liq"
+#omfmday = rotate(weights = [1, 4],[jinglesomfm, relax])
+#omfmday = switch([
+#(predicate.once({9h-10h or 11h-13h or 13h-16h or 18h-19h or 20h-21h or 22h-23h}), suttas),
+#(predicate.once({19h-20h}), nazarenko), ({true}, omfmday)
+#])
+
+
+#stream_url = mksafe(buffer(id="stream", buffer=5.,input.http("http://streams.echoesofbluemars.org:8000/cryosleep")))
+#omfmday = switch([ ({10h-11h}, omfmclassichour),  ({4h-6h}, mantraom528), ({true}, omfmday) ])
+#omfm_0 = switch([ 
+#({4h-23h}, omfmday), 
+#({23h-4h}, lofi2), 
+#({true}, omfmday) 
+#])
+
+omfm_0 = relax
+
+omfm_0 = switch([
+({23h-4h}, lofi2), 
+({4h-6h}, mantraom528), 
+({10h-11h}, omfmclassic), 
+(predicate.at_most(2,{23h00-23h15}), jinglesnightshiftintroomfm), 
+(predicate.at_most(2,{10h00m-10h15m}), jinglesclassicintroomfm), 
+(predicate.once({10h20m-10h50m}), jinglesclassicomfm), 
+(predicate.once({9h-10h or 11h-13h or 13h-16h or 18h-19h or 20h-21h or 22h-23h}), suttas),
+(predicate.once({8h-11h or 14h-15h or 15h-16h or 17h-19h}), audiobooks),
+(predicate.once({19h-20h}), nazarenko), 
+({6h0m-10h0m or 11h0m-23h0m }, rotate(weights=[1,3],[jinglesomfm, omfm_0])),
+({true}, omfm_0)
+])
+# --- общая обвязка ----------------------------------------------------------
+
+%include "../lib/queues.liq"
+%include "../lib/nowplaying.liq"
+
+omfm_0 = with_queues(omfm_0)
+omfm_0 = with_nowplaying(omfm_0)
+omfm_0 = amplify(1., override="liq_amplify", omfm_0)
+
+%include "../lib/crossfade.liq"
+
+omfm_0 = crossfaded(omfm_0)
+omfm = mksafe(omfm_0)
+
+%include "../lib/output.liq"
+
+outputs(omfm)
+register_skip(omfm)
