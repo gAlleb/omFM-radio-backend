@@ -42,6 +42,14 @@ RUN chmod +x /usr/bin/cue_file
 RUN chmod +x /usr/bin/telegram-send-omfm
 
 
+# playlog и song_history пишутся в <станция>/log. Каталог обязан существовать:
+# без него check падает с ENOENT, плейлист не отдаёт ни одного трека и в эфир
+# идут только джинглы. Git пустые каталоги не хранит, поэтому создаём здесь —
+# автоматически для любой станции, включая будущие.
+RUN for d in /home/radio/liquidsoap/*/; do \
+      [ "$d" = "/home/radio/liquidsoap/lib/" ] || mkdir -p "$d/log"; \
+    done
+
 RUN chown -R radio:radio /home/radio 
 # Одна станция — один контейнер, один процесс.
 # Скрипт станции передаётся как command из docker-compose.yaml,
