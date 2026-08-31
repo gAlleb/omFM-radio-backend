@@ -35,7 +35,8 @@ log_regex = re.compile(
 
 api_endpoint = 'http://omfmapi:9999/listeners_stat'
 #geo_api_url = "http://ip-api.com/json/" #old
-geo_api_url = "https://api.findip.net/{IP_ADDRESS}/?token=hackme"  # Updated geo API URL
+FINDIP_TOKEN = os.environ["FINDIP_TOKEN"]
+geo_api_url = "https://api.findip.net/{IP_ADDRESS}/?token=" + FINDIP_TOKEN
 
 #Icestats URLS
 ICESTATS_URLS = {

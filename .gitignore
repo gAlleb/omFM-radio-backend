@@ -1,2 +1,29 @@
-node_modules/
+# --- secrets ---
 .env
+docker/listeners_monitor/api_username.txt
+docker/listeners_monitor/api_password.txt
+docker/listeners_monitor/icecast_username.txt
+docker/listeners_monitor/icecast_password.txt
+docker/icecast/config/*.pem
+
+# --- runtime state / logs ---
+docker/liquidsoap/log/
+docker/omfmapi/app/db/
+docker/listeners_monitor/test.log
+
+# --- deps ---
+node_modules/
+
+# --- editor / os ---
+.DS_Store
+*.swp
+
+# --- centrifugo (реальные ключи) ---
+docker/centrifugo/config.toml
+
+# --- устаревшие копии с секретами (см. отчёт: рекомендую удалить, git заменит архив) ---
+docker/omfmapi/app/archive/
+docker/omfmapi/app/server_omfm_only.js
+docker/liquidsoap/rootfs/home/radio/liquidsoap/*/omfm.liq_2.4
+docker/liquidsoap/rootfs/home/radio/liquidsoap/*/omfm.liq_2.5
+docker/liquidsoap/rootfs/home/radio/liquidsoap/*/omfm.liq.2.5

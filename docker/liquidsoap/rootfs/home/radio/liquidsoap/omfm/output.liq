@@ -32,7 +32,7 @@ end
 #clock.assign_new(id="MAIN_OMFM",[icecast_omfm, HLS_omfm])
 #persist_at="/var/www/html/omfm/hls/state/omfm.state.config"
 
-output.icecast(%ffmpeg(format="adts",%audio.copy), host = "icecast", port = 8000, password = "hackme", mount = "stream", description="For meditation and relaxation", genre="It's music for your ears", url="https://omfm.ru", name="omFM", omfm)
+output.icecast(%ffmpeg(format="adts",%audio.copy), host = "icecast", port = 8000, password = environment.get("ICECAST_SOURCE_PASSWORD"), mount = "stream", description="For meditation and relaxation", genre="It's music for your ears", url="https://omfm.ru", name="omFM", omfm)
 
 output.file.hls(playlist="stream.m3u8",
                 segment_duration=3.0,

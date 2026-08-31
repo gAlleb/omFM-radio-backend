@@ -12,10 +12,10 @@
     </limits>
 
     <authentication>
-        <source-password>hackme</source-password>
-        <relay-password>hackme</relay-password>
-        <admin-user>stefan</admin-user>
-        <admin-password>hackme</admin-password>
+        <source-password>SET_VIA_ENV</source-password>
+        <relay-password>SET_VIA_ENV</relay-password>
+        <admin-user>SET_VIA_ENV</admin-user>
+        <admin-password>SET_VIA_ENV</admin-password>
     </authentication>
     <hostname>stream.omfm.ru</hostname>
     <listen-socket>

@@ -1,5 +1,0 @@
-89.113.144.159 - - [20/Feb/2025:10:12:21 +0300] "GET /cdp/aac_midfi_3.0_1739951931_15049.ts HTTP/1.1" 200 105280 "-" "AppleCoreMedia/1.0.0.19H386 (iPhone; U; CPU OS 15_8_3 like Mac OS X; ru_ru)"
-89.113.144.3 - - [20/Feb/2025:10:12:21 +0300] "GET /cdp/aac_midfi_3.0_1739951931_15049.ts HTTP/1.1" 200 105280 "-" "AppleCoreMedia/1.0.0.19H386 (iPhone; U; CPU OS 15_8_3 like Mac OS X; ru_ru)"
-89.113.144.159 - - [20/Feb/2025:10:12:21 +0300] "GET /rock/fi_3.0_1739951931_15049.ts HTTP/1.1" 200 105280 "-" "AppleCoreMedia/1.0.0.19H386 (iPhone; U; CPU OS 15_8_3 like Mac OS X; ru_ru)"
-89.113.144.158 - - [20/Feb/2025:10:16:21 +0300] "GET /rock/aac_hifi_3.0_1739951931_15049.ts HTTP/1.1" 200 105280 "-" "AppleCoreMedia/1.0.0.19H386 (iPhone; U; CPU OS 15_8_3 like Mac OS X; ru_ru)"
-62.89.204.215 - - [20/Feb/2025:10:46:42 +0300] "GET /omfm/aac_hifi.m3u8 HTTP/1.1" 200 630 "https://omfm.ru/" "Mozilla/5.0 (Linux; arm_64; Android 11; RMX2001) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 YaBrowser/23.3.6.40.00 SA/3 Mobile Safari/537.36"

@@ -8,17 +8,14 @@ services:
       - centrifugo
     environment:
       - "TZ=Europe/Moscow"
+      - CENTRIFUGO_API_KEY
+      - AZURACAST_API_KEY
+      - OMFMAPI_USER
+      - OMFMAPI_PASSWORD
+      - SPOTIFY_CLIENT_ID
+      - SPOTIFY_CLIENT_SECRET
     user: node:node
-    volumes:
-      - ./docker/omfmapi/app/playlist:/home/node/app/playlist
-      - ./docker/omfmapi/app/db:/home/node/app/db
-      # - /var/log/nginx:/var/log/nginx:ro
     restart: always
-    secrets:
-      - source: api_username
-      - source: api_password
-      - source: icecast_username
-      - source: icecast_password
     ports:
        - 127.0.0.1:9999:9999
     networks:
@@ -39,6 +36,7 @@ services:
     environment:
       TZ: "Europe/Moscow"
       STREAM_NAMES: "omfm,cdp"
+      FINDIP_TOKEN: "${FINDIP_TOKEN:?FINDIP_TOKEN не задан в .env}"
     volumes:
       - /var/log/nginx:/var/log/nginx:ro
     restart: always
@@ -91,6 +89,13 @@ services:
     container_name: liquidsoap
     environment:
       - "TZ=Europe/Moscow"
+      - ICECAST_SOURCE_PASSWORD
+      - OMFMAPI_USER
+      - OMFMAPI_PASSWORD
+      - LASTFM_OMFM_API_KEY
+      - LASTFM_OMFM_API_SECRET
+      - LASTFM_CDP_API_KEY
+      - LASTFM_CDP_API_SECRET
     command:
       - /usr/bin/docker-entrypoint
     volumes:
@@ -145,6 +150,7 @@ services:
       - ICECAST_ADMIN_PASSWORD
       - ICECAST_RELAY_PASSWORD
       - ICECAST_HOSTNAME
+      - ICECAST_ADMIN_USERNAME
     logging:
       driver: "json-file"
       options:

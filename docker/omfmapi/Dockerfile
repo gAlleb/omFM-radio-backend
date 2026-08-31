@@ -1,8 +1,6 @@
 FROM node:24-alpine
 
 RUN mkdir -p /home/node/app
-RUN mkdir -p /home/node/app/db
-RUN mkdir -p /home/node/app/playlist
 
 WORKDIR /home/node/app
 

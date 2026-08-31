@@ -1,6 +1,6 @@
 [http_api]
 insecure = false
-key = "hackme"
+key = "CHANGE_ME"
 
 [client]
 allowed_origins = ["*"]
@@ -13,8 +13,8 @@ enabled = false
 [admin]
 enabled = true
 insecure = false
-password = "hackme"
-secret = "hackme"
+password = "CHANGE_ME"
+secret = "CHANGE_ME"
 
 [uni_websocket]
 enabled = true

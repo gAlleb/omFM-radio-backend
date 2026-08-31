@@ -266,8 +266,8 @@ harbor.http.register.simple("/skipQueue", flush_and_skip_queue, port=8007)
 ######################################################################
 #########
 ##################### LAST.FM scrobble #####################
-settings.audioscrobbler.api_key := "hackme"
-settings.audioscrobbler.api_secret := "hackme"
+settings.audioscrobbler.api_key := environment.get("LASTFM_OMFM_API_KEY")
+settings.audioscrobbler.api_secret := environment.get("LASTFM_OMFM_API_SECRET")
 
 #omfm_0 = audioscrobbler.submit(
 #  username="omfmru",
@@ -482,7 +482,9 @@ def send_mq_event(payload)
 #  data = json.stringify(data, compact=true)
 
 
-auth = string.base64.encode("stepan:hackme")
+api_user = environment.get("OMFMAPI_USER")
+api_pass = environment.get("OMFMAPI_PASSWORD")
+auth = string.base64.encode("#{api_user}:#{api_pass}")
 
 data = payload
 
