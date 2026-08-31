@@ -7,8 +7,8 @@
 #  Из него генерируются:
 #    docker/generated/stations.json          (читают omfmapi и listeners_monitor)
 #    docker/icecast/config/icecast.xml       (секции <relay> и <mount>)
-#    docker/liquidsoap/supervisord/...conf   (секции [program:...])
-#    docker-compose.yaml                     (проброс портов liquidsoap)
+#    docker-compose.yaml                     (сервис liquidsoap-<станция>:
+#                                             порты, volume'ы, healthcheck, env)
 #  Всё перечисленное — между маркерами GENERATED, руками не править.
 #
 #  Порядок станций здесь задаёт порядок полей в ответе /listeners.
