@@ -1,0 +1,1 @@
+find /mnt/GoogleDrive/audio/CafeDeParis -name *mp3 -type f > icecast-playlist-cdp.m3u

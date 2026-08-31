@@ -1,0 +1,725 @@
+# Log dir
+stopwords=[
+"a",
+"with",
+",",
+"&",
+"the",
+"feat",
+"vs",
+"manose",
+"miten",
+"and"
+]
+
+def tokenize(a)
+  b = string.case(a, lower=true)
+  c = r/[^\w'-]+/.split(b)
+  # TODO: normalize
+  d = list.filter(fun(i) -> not list.mem(i, stopwords), c)
+  list.sort.natural(d)
+end
+ 
+def my_hash(m)
+#"$(artist) - $(title)" % [ 
+#("artist", metadata.artist(m)),    
+#("title", metadata.title(m))
+#]
+  artist = metadata.artist(m)
+#  string.trim(artist)
+  string.concat(tokenize(artist), separator=" ")
+end
+l = playlog(persistency="/home/radio/liquidsoap/cdp/log/songs_check_omfm.log", duration=7200.,hash=my_hash)
+#def check(r)
+#m = request.metadata(r)
+#if l.last(m) < 5400. then
+#log(level=3,"Rejecting #{m['artist']} (played #{l.last(m)}s ago).")
+#false
+#else
+#l.add(m)
+#true
+#end
+#end
+next_title = ref("")
+next_artist = ref("")
+next_playlist = ref("")
+next_album = ref("")
+def check(r)
+  #log.critical(label="request.uri","#{request.uri(r)}")
+  if request.resolve(r) then
+    m = request.metadata(r)
+
+    if l.last(m) < 3600. then
+    log(level=3,"Rejecting #{m['artist']} (played #{l.last(m)}s ago).")
+      false
+    else
+      l.add(m)
+      next_title := m["title"]
+      next_artist := m["artist"]
+      next_playlist := m["playlist"]
+      next_album := m["album"]
+      true
+    end
+  else
+    false
+  end
+end
+
+def hls_meta(m) =
+title = m["title"]
+artist = m["artist"]
+if artist != "" and title != "" then
+[...list.assoc.remove("artist", m), ("title", "#{artist} - #{title}")]
+else
+m
+end
+end
+
+##################### OMFM #####################
+# Music autocue:
+cdp = playlist(check_next=check,prefetch=1,prefix='annotate:liq_blankskip="false",playlist="Cafe De Paris":',id="Cafe De Paris", reload_mode="watch", "/home/radio/playlist/icecast-playlist-cdp.m3u")
+jingles = playlist(prefix='annotate:jingle_mode=true:', reload_mode="watch", "/home/radio/music/jingles/cdp")
+
+omfm_0 = rotate([jingles, cdp.{weight = 3}]) 
+
+default_queue = request.queue()
+
+interrupting_queue = request.queue()	
+		
+omfm_0 = fallback([default_queue, omfm_0])
+
+omfm_0 = fallback([interrupting_queue.{track_sensitive = false}, omfm_0])
+
+def play(request)
+ fname = request.query["file"]
+ option = request.query["track_sensitive"]
+
+ log.important("Serving file #{fname}. track_sensitive=true")
+
+   if file.exists(fname) then
+
+    if option == "true" then
+      default_queue.push.uri("#{fname}")
+      http.response(data="Request pushed to default queue.")
+    else
+      interrupting_queue.push.uri("#{fname}")
+      http.response(data="Request pushed to interrupting queue.")
+    end
+   else
+    http.response(status_code=404, data="Invalid file.")
+   end
+end
+
+harbor.http.register.simple("/queueFile", play, port=8008, method="GET")
+
+def play_playlist(request)
+ playlist_name = request.query["playlist_name"]
+ option = request.query["track_sensitive"]
+ if file.exists(playlist_name) then
+ 
+ if option == "true" then
+
+  tracks = list.iter(fun (x) -> begin
+       let (_, uri) = x
+       default_queue.push.uri(uri)
+     end, playlist.parse("#{playlist_name}"))
+
+  q = default_queue.queue()
+
+          http.response(content_type="application/json; charset=UTF-8", status_code=200, 
+          data=json.stringify({
+          status = "success", message = "Pushed to default queue: #{playlist_name}.", 
+          remaining_tracks_in_queue = list.length(q), 
+          files_pushed = playlist.files(playlist_name)
+          }))
+ else
+
+  tracks = list.iter(fun (x) -> begin
+       let (_, uri) = x
+       interrupting_queue.push.uri(uri)
+     end, playlist.parse("#{playlist_name}"))
+
+  q = interrupting_queue.queue()
+
+          http.response(content_type="application/json; charset=UTF-8", status_code=200, 
+          data=json.stringify({
+          status = "success", message = "Pushed to interrupting queue: #{playlist_name}.", 
+          remaining_tracks_in_queue = list.length(q), 
+          files_pushed = playlist.files(playlist_name)
+          }))
+
+ end
+ 
+  else
+    http.response(status_code=404, data="Invalid playlist file.")
+  end
+
+ end
+
+harbor.http.register.simple("/queuePlaylist", play_playlist, port=8008, method="GET")
+
+def flush_and_skip_queue(r)
+
+ option = r.query["queueType"]
+
+ if option == "default" then
+  q = default_queue.queue()
+  default_queue.set_queue([])
+  default_queue.skip()
+  list.iter(request.destroy, q)
+  http.response(data="default_queue is emptied.")
+ else 
+  q = interrupting_queue.queue()
+  interrupting_queue.set_queue([])
+  interrupting_queue.skip()
+  list.iter(request.destroy, q)
+  http.response(data="interrupting_queue is emptied.")
+ end
+
+end
+
+harbor.http.register.simple("/skipQueue", flush_and_skip_queue, port=8008)
+
+# http://localhost:8008/skipQueue?queueType=default - skips default queue
+# http://localhost:8008/skipQueue - skips interrupting queue
+#
+# http://localhost:8008/queuePlaylist?track_sensitive=true&playlist_name= - queues to ddefault queue
+# http://localhost:8008/queuePlaylist?playlist_name= - queues to interrupting queue
+#
+# http://localhost:8008/queueFile?track_sensitive=true&file= - queues to default queue
+# http://localhost:8008/queueFile?file= - queues to interrupting queue
+
+##################### LAST.FM scrobble #####################
+settings.audioscrobbler.api_key := "hackme"
+settings.audioscrobbler.api_secret := "hackme"
+
+#omfm_0 = audioscrobbler.submit(
+#  username="CafeParisien",
+#  password="hackme",
+#  force=true, 
+#  metadata_preprocessor=(fun(m) -> if m["jingle_mode"] == "true" then [] else m end),
+# omfm_0
+#)
+####
+
+songHistory = ref([])
+np_timestamp = ref(0.0)
+np_on_air = ref("")
+
+
+#def restore_history() 
+#try
+#  let json.parse (savedHistory : typeof songHistory()) = file.contents("/home/radio/liquidsoap/cdp/#log/song_history.json")
+#  songHistory := savedHistory
+#catch _ do
+#  ()
+#end
+#end
+
+#thread.run(restore_history, fast=false)
+
+def save_history(m, ~last=10)
+  def null_list(key, _list)
+    #list.assoc.mem(key, _list) ? list.assoc(key, _list) : null()
+    list.assoc.mem(key, _list) ? list.assoc(key, _list) : ""
+  end
+  def null_float(f)
+    f == infinity ? null() : f
+  end
+
+  #file_duration = null.get(default=0.0, request.duration(m["filename"]))
+  
+  pre_artist = null_list("artist", m)
+  
+  pre_title = null_list("title", m)
+
+def get_cover_base64(~coverart_mime=null(), ~base64=true, m) =
+  c = metadata.cover(coverart_mime=coverart_mime, m)
+    if
+      null.defined(c)
+    then
+      c = null.get(c)
+      string.data_uri.encode(base64=base64, mime=c.mime, c)
+    else
+     ""
+    end
+end
+ 
+  default_stream_title = "Default" # null()
+  stream_title =
+  #if pre_title == null() then
+  if pre_title == "" then
+    default_stream_title
+  elsif pre_artist == "" then
+  #elsif pre_artist == null() then
+    pre_title
+  else
+    "#{pre_artist} - #{pre_title}"
+  end
+
+  artist = ref("")
+  title = ref("")
+
+
+     if pre_artist == "" then
+     #if pre_artist == null() then
+        if string.contains(substring=" - ", m["title"]) then
+            let (a, t) = string.split.first(separator=" - ", m["title"])
+       	    title := t
+            artist := a
+        end
+     else
+            title := pre_title
+            artist := pre_artist
+     end
+
+     np_timestamp := time()
+     np_on_air := time.string("%Y/%m/%d %H:%M:%S")
+     
+
+if (m["jingle_mode"] != "true") then
+  sh = {
+
+      played_at = np_timestamp(),
+      played_at_timestamp_old = null_list("on_air_timestamp", m),
+      played_at_timestamp = np_timestamp(),
+      played_at_date_time_old = null_list("on_air", m),
+      played_at_date_time = np_on_air(),
+      playlist = null_list("playlist", m),
+      #duration = null_float(file_duration),
+      filename = null_list("filename", m),
+
+      song = {
+		text = stream_title,
+		artist = artist(),
+    		title = title(),
+		album = null_list("album", m),
+ 	 	genre = null_list("genre", m),
+		#cover = get_cover_base64(m)
+
+	   }
+  }
+  songHistory := sh::songHistory()
+ 
+  if list.length(songHistory()) > last then
+    songHistory := list.prefix(last,songHistory())
+  end  
+
+  data = json.stringify(songHistory(), compact=true)
+  ignore(file.write(data=data, append=false, "/home/radio/liquidsoap/cdp/log/song_history.json"))
+
+end 
+
+end
+omfm_0.on_metadata(synchronous=false,save_history)
+ 
+
+
+def send_mq_event(payload)
+
+
+  def handle_http_error(error)
+    log.important(
+      "Unable to send mq event. #{error.message}",
+      label="http"
+    )
+  end
+  
+  def handle_http_response(result)
+    if result.status_code != 200 then
+      log.important(
+        "Unable to send mq event. #{result.status_code} #{result.status_message} \
+         #{string.quote(result)}",
+        label="http"
+      )
+    end
+  end
+
+
+
+#  data = {
+#    properties = {
+#      delivery_mode = 2
+#    },
+#    routing_key = "dsfdsf3r325gf",
+#    payload = payload,
+#    payload_encoding = "string"
+#  }
+# Yeap, we stringily it in the write function and then again here to send to management suite 
+#  data = json.stringify(data, compact=true)
+
+
+auth = string.base64.encode("stepan:hackme")
+
+data = payload
+
+##############################
+#centrifugo
+#data = {
+#  channel = "station:radio",
+#   data = payload
+#       }
+
+#data = json.stringify(data, compact=true)
+#auth = "hackme"
+##############################
+
+#rabbitMQ) don't stringily data in write_json_nowplaying function, change data to data1 in http.post
+#data1 = {
+#  channel = "station:radio",
+#   pub = { data = { np = payload } }
+#       }
+#data1 = json.stringify(data1, compact=true)
+
+
+ response = 
+ try
+
+    http.post(
+#    "http://localhost:15672/api/exchanges/liq/liquidsoap/publish",
+    "http://omfmapi:9999/liq2",
+#    "http://localhost:9998/api/publish",
+    data=data,
+    headers=[
+      ("Content-Type", "application/json"),
+      ("Authorization", "Basic #{auth}"),
+#centrifugo     
+# ("X-API-key", "#{auth}"),
+#
+    ],
+    )
+ catch error do
+ handle_http_error(error)
+ #log.severe(error.message, label="http")
+ null()
+ end
+ignore(null.map(handle_http_response, response))
+()
+end
+
+ 
+
+
+
+
+def write_json_nowplaying(omfm_0)
+
+  def write_data()
+
+  def null_float(f)
+    f == infinity ? null() : f
+  end
+
+  def null_float_zero(f)
+    f == infinity ? 0.0 : f
+  end
+
+  def null_list(key, _list)
+    #list.assoc.mem(key, _list) ? list.assoc(key, _list) : null()
+    list.assoc.mem(key, _list) ? list.assoc(key, _list) : ""
+  end
+
+  m = omfm_0.last_metadata() ?? []
+
+  duration_meta = null_list("duration", m)
+  played_at_next = float_of_string(default=0., duration_meta) + np_timestamp()
+  played_at_next_source_value = null_float_zero(source.duration(omfm_0)) + np_timestamp()
+ 
+  #doesn't work with autocue 
+  #file_duration = null.get(default=0.0, request.duration(m["filename"]))
+
+  pre_artist = null_list("artist", m)
+  
+  pre_title = null_list("title", m)
+
+def get_cover_base64(~coverart_mime=null(), ~base64=true, m) =
+  c = metadata.cover(coverart_mime=coverart_mime, m)
+    if
+      null.defined(c)
+    then
+      c = null.get(c)
+      string.data_uri.encode(base64=base64, mime=c.mime, c)
+    else
+     ""
+    end
+end
+  
+  default_stream_title = "omFM.ru Radio" # null()
+  stream_title =
+  if pre_title == "" then
+  #if pre_title == null() then
+    default_stream_title
+  elsif pre_artist == "" then
+  #elsif pre_artist == null() then
+    pre_title
+  else
+    "#{pre_artist} - #{pre_title}"
+  end
+
+  artist = ref("")
+  title = ref("")
+
+
+     #if pre_artist == null() then
+      if pre_artist == "" then
+        if string.contains(substring=" - ", m["title"]) then
+            let (a, t) = string.split.first(separator=" - ", m["title"])
+       	    title := t
+            artist := a
+        end
+     else
+            title := pre_title
+            artist := pre_artist
+     end
+
+
+  np = {
+
+    station = {
+      name = "omFM",
+      shortcode = "radio",
+      timezone = "Europe/Moscow"
+
+    },
+    now_playing = {
+      played_at = np_timestamp(),
+      played_at_timestamp_old = null_list("on_air_timestamp", m),
+      played_at_timestamp = np_timestamp(),
+      played_at_date_time_old = null_list("on_air", m),
+      played_at_date_time = np_on_air(),
+      duration = null_float(source.duration(omfm_0)),
+      elapsed = null_float(source.elapsed(omfm_0)),
+      remaining = null_float(source.remaining(omfm_0)),
+      playlist = null_list("playlist", m),
+      filename = null_list("filename", m),
+
+      song = { 
+           	text = stream_title,
+     	  	artist = artist(),
+         	title = title(),
+          	album = null_list("album", m),
+ 	 	genre = null_list("genre", m),
+		#cover = get_cover_base64(m)
+        	#song_duration = null_float(file_duration)
+	     }
+
+      
+
+      #playlist = source.id(omfm_0),
+     
+       },
+    playing_next = {
+	played_at = played_at_next,
+        played_at_source_value = played_at_next_source_value,
+        playlist = next_playlist(),
+        song = {
+ 
+           text = "#{next_title()} - #{next_artist()}",
+           title = next_title(), 
+           artist = next_artist(), 
+           album = next_album(), 
+
+      }
+
+    },
+
+    song_history = songHistory()
+  
+  }
+
+
+if (m["jingle_mode"] != "true") then
+send_mq_event(json.stringify(np, compact=true))
+end
+
+ 
+ end
+
+  thread.run(write_data, every=1.0, fast=false)
+
+end
+write_json_nowplaying(omfm_0)
+
+ 
+
+# Handle "Jingle Mode" tracks by replaying the previous metadata.
+last_metadata = ref([])
+def handle_jingle_mode(m) =
+    if (m["jingle_mode"] == "true") then
+        last_metadata()
+    else
+        last_metadata.set(m)
+        m
+    end
+end
+
+omfm_0 = metadata.map(update=false, strip=true, handle_jingle_mode, omfm_0)
+
+
+def get_metadata(_)
+
+  def null_float(f)
+    f == infinity ? null() : f
+  end
+
+  def null_float_zero(f)
+    f == infinity ? 0.0 : f
+  end
+
+  def null_list(key, _list)
+    list.assoc.mem(key, _list) ? list.assoc(key, _list) : ""
+  end
+
+  #log("method: #{request.method}")
+
+  m = omfm_0.last_metadata() ?? []
+
+  duration_meta = null_list("duration", m)
+  played_at_next = float_of_string(default=0., duration_meta) + np_timestamp()
+  played_at_next_source_value = null_float_zero(source.duration(omfm_0)) + np_timestamp()
+
+  #file_duration = null.get(default=0.0, request.duration(m["filename"]))
+
+  pre_artist = null_list("artist", m)
+  
+  pre_title = null_list("title", m)
+
+def get_cover_base64(~coverart_mime=null(), ~base64=true, m) =
+  c = metadata.cover(coverart_mime=coverart_mime, m)
+    if
+      null.defined(c)
+    then
+      c = null.get(c)
+      string.data_uri.encode(base64=base64, mime=c.mime, c)
+    else
+     ""
+    end
+end
+  
+  default_stream_title = "Default" # null()
+  stream_title =
+  if pre_title == "" then
+    default_stream_title
+  elsif pre_artist == "" then
+    pre_title
+  else
+    "#{pre_artist} - #{pre_title}"
+  end
+
+  artist = ref("")
+  title = ref("")
+
+
+     if pre_artist == "" then
+        if string.contains(substring=" - ", m["title"]) then
+            let (a, t) = string.split.first(separator=" - ", m["title"])
+       	    title := t
+            artist := a
+        end
+     else
+            title := pre_title
+            artist := pre_artist
+     end
+
+  data = {
+
+    station = {
+      name = "omFM",
+      shortcode = "radio",
+      timezone = "Europe/Moscow"
+
+    },
+    now_playing = {
+      played_at = np_timestamp(),
+      played_at_timestamp_old = null_list("on_air_timestamp", m),
+      #played_at_timestamp = np_timestamp(),
+      played_at_date_time_old = null_list("on_air", m),
+      #played_at_date_time = np_on_air(),
+      duration = null_float(source.duration(omfm_0)),
+      elapsed = null_float(source.elapsed(omfm_0)),
+      remaining = null_float(source.remaining(omfm_0)),
+      playlist = null_list("playlist", m),
+      filename = null_list("filename", m),
+
+      song = { 
+           	text = stream_title,
+     	  	artist = artist(),
+         	title = title(),
+          	album = null_list("album", m),
+ 	 	genre = null_list("genre", m),
+		#cover = get_cover_base64(m)
+        	#song_duration = null_float(file_duration)
+	     }
+     
+     },
+
+     playing_next = {
+	played_at = played_at_next,
+        played_at_source_value = played_at_next_source_value,
+        playlist = next_playlist(),
+        song = {
+           text = "#{next_title()} - #{next_artist()}",
+           title = next_title(), 
+           artist = next_artist(), 
+           album = next_album(), 
+
+      }
+
+    },
+
+    song_history = songHistory()
+  
+  }
+ try
+
+  http.response(
+    status_code=200,
+    headers=[
+                ("Content-Type", "application/json"),
+                ("Access-Control-Allow-Origin","*")
+            ],
+    content_type="application/json; charset=UTF-8",
+    data=json.stringify(data, compact=true)
+  )
+
+ catch error do
+
+  log.severe(error.message, label="http")
+  http.response(
+    status_code=500,
+    content_type="application/json; charset=UTF-8",
+    data='{"status":"error","message":"Failed to serialize response data"}' ^ "\n"
+  )
+
+  end
+end
+
+harbor.http.register.simple("/nowplaying", get_metadata, port=8008, method="GET")
+
+
+meta = ref([])
+omfm_0.on_metadata(synchronous=false,fun (m) -> meta := m)
+def get_all_meta(_, response) =
+  response.json(meta())
+end
+harbor.http.register(port=8008, method="GET", "/metadata", get_all_meta)
+
+# Be sure to have ReplayGain applied before crossing.
+omfm_0 = amplify(1.,override="liq_amplify",omfm_0)
+
+
+%include "crossfade.liq"
+
+omfm = mksafe(omfm)
+
+ 
+%include "output.liq"
+
+
+##################### OMFM end #####################
+
+def skipper(_)
+omfm.skip()
+http.response(data="The current song was skipped!")
+end
+harbor.http.register.simple(port=8008, "/skip", skipper)

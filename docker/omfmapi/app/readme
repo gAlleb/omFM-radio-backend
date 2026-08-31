@@ -1,0 +1,7 @@
+# Init NPM project
+$ npm init -y
+$ npm i express
+$ npm i -D nodemon
+
+# Create the server file
+& touch index.js

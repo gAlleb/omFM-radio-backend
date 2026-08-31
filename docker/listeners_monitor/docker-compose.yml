@@ -1,0 +1,27 @@
+services:
+  hls_monitor:
+    build:
+      context: ./
+      dockerfile: ./Dockerfile
+    environment:
+      TZ: "Europe/Moscow"
+    volumes:
+      - /var/log/nginx:/var/log/nginx:ro
+    restart: always
+    secrets:
+      - source: api_username
+      - source: api_password
+
+secrets:
+  api_username:
+    file: ./api_username.txt
+  api_password:
+    file: ./api_password.txt
+networks:
+  default:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.25.0.0/16
+          gateway: 172.25.0.1

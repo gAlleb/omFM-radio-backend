@@ -1,0 +1,268 @@
+<icecast>
+    <location>Moscow</location>
+    <admin>radio@omFM.ru</admin>
+    <limits>
+        <clients>1000</clients>
+        <sources>10</sources>
+        <queue-size>524288</queue-size>
+        <client-timeout>60</client-timeout>
+        <header-timeout>15</header-timeout>
+        <source-timeout>60</source-timeout>
+        <burst-size>65535</burst-size>
+    </limits>
+
+    <authentication>
+        <source-password>hackme</source-password>
+        <relay-password>hackme</relay-password>
+        <admin-user>stefan</admin-user>
+        <admin-password>hackme</admin-password>
+    </authentication>
+    <hostname>stream.omfm.ru</hostname>
+    <listen-socket>
+        <port>8000</port>  
+        <trusted-proxy>#vs</trusted-proxy>
+    </listen-socket> 
+<listen-socket>
+        <port>8443</port>  
+        <tls>auto_no_plain</tls>
+<trusted-proxy>#vs</trusted-proxy>
+   </listen-socket> 
+<listen-socket type="virtual" id="vs"><client-address>172.20.0.1</client-address>
+</listen-socket>
+<!--     <http-headers>
+        <header name="Access-Control-Allow-Origin" value="*" />
+        <header name="Access-Control-Allow-Methods" value="GET, OPTIONS" />
+        <header name="Access-Control-Allow-Headers" value="Content-Type, Icy-Metadata" />
+        <header name="Access-Control-Expose-Headers" value="Icy-MetaInt, Icy-Br, Icy-Description, Icy-Genre, Icy-Name, Ice-Audio-Info, Icy-Url, Icy-Sr, Icy-Vbr, Icy-Pub" />
+    </http-headers> -->
+    <http-headers>
+        <header type="cors" name="Access-Control-Allow-Origin" />
+        <header type="cors" name="Access-Control-Allow-Headers" />
+        <header type="cors" name="Access-Control-Expose-Headers" />
+    </http-headers>
+
+    <relay>
+        <local-mount>/rock</local-mount>
+        <on-demand>false</on-demand>
+        <upstream type="normal">
+            <uri>http://radio.omfm.ru:8000/radio.aac</uri>
+            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>  
+        </upstream>
+        <!-- <charset>UTF-8</charset> -->
+    </relay> 
+    <relay>
+        <local-mount>/coma</local-mount>
+        <on-demand>false</on-demand>
+        <upstream type="normal">
+            <uri>http://radio.omfm.ru:8020/coma.aac</uri>
+            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>  
+        </upstream>
+        <!-- <charset>UTF-8</charset> -->
+    </relay> 
+    <relay>
+        <local-mount>/terra</local-mount>
+        <on-demand>false</on-demand>
+        <upstream type="normal">
+            <uri>http://radio.omfm.ru:8040/terra.aac</uri>
+            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>  
+        </upstream>
+        <!-- <charset>UTF-8</charset> -->
+    </relay> 
+    <relay>
+        <local-mount>/core</local-mount>
+        <on-demand>false</on-demand>
+        <upstream type="normal">
+            <uri>http://radio.omfm.ru:8050/core.aac</uri>
+            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>  
+        </upstream>
+        <!-- <charset>UTF-8</charset> -->
+    </relay> 
+    <relay>
+        <local-mount>/chill</local-mount>
+        <on-demand>false</on-demand>
+        <upstream type="normal">
+            <uri>http://radio.omfm.ru:8060/chill.aac</uri>
+            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>  
+        </upstream>
+        <!-- <charset>UTF-8</charset> -->
+    </relay> 
+    <relay>
+        <local-mount>/ashes</local-mount>
+        <on-demand>false</on-demand>
+        <upstream type="normal">
+            <uri>http://radio.omfm.ru:8070/ashes.aac</uri>
+            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>
+        </upstream>
+        <!-- <charset>UTF-8</charset> -->
+    </relay>
+    <relay>
+        <local-mount>/noir</local-mount>
+        <on-demand>false</on-demand>
+        <upstream type="normal">
+            <uri>http://radio.omfm.ru:8090/noir.aac</uri>
+            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>
+        </upstream>
+        <!-- <charset>UTF-8</charset> -->
+    </relay>
+    <relay>
+        <local-mount>/totalrock</local-mount>
+        <on-demand>false</on-demand>
+        <upstream type="normal">
+            <uri>http://s3.citrus3.com:8056/stream</uri>
+            <relay-shoutcast-metadata>false</relay-shoutcast-metadata>
+        </upstream>
+        <!-- <charset>UTF-8</charset> -->
+    </relay>
+    <mount type="normal">
+        <mount-name>/totalrock</mount-name>
+        <fallback-mount>/fallback-[192].aac</fallback-mount>
+        <fallback-override>all</fallback-override>
+        <charset>UTF-8</charset>
+    </mount>
+    <mount type="normal">
+        <mount-name>/core</mount-name>
+        <fallback-mount>/fallback-[192].aac</fallback-mount>
+        <fallback-override>all</fallback-override>
+        <charset>UTF-8</charset>
+    </mount>
+    <mount type="normal">
+        <mount-name>/terra</mount-name>
+        <fallback-mount>/fallback-[192].aac</fallback-mount>
+        <fallback-override>all</fallback-override>
+        <charset>UTF-8</charset>
+    </mount>
+     <mount type="normal">
+        <mount-name>/chill</mount-name>
+        <fallback-mount>/fallback-[192].aac</fallback-mount>
+        <fallback-override>all</fallback-override>
+        <charset>UTF-8</charset>
+    </mount>
+    <mount type="normal">
+        <mount-name>/ashes</mount-name>
+        <fallback-mount>/fallback-[192].aac</fallback-mount>
+        <fallback-override>all</fallback-override>
+        <charset>UTF-8</charset>
+    </mount>
+    <mount type="normal">
+        <mount-name>/noir</mount-name>
+        <fallback-mount>/fallback-[192].aac</fallback-mount>
+        <fallback-override>all</fallback-override>
+        <charset>UTF-8</charset>
+    </mount>
+    <mount type="normal">
+        <mount-name>/coma</mount-name>
+        <fallback-mount>/fallback-[192].aac</fallback-mount>
+        <fallback-override>all</fallback-override>
+        <charset>UTF-8</charset>
+    </mount>
+    <mount type="normal">
+        <mount-name>/rock</mount-name>
+        <charset>UTF-8</charset>
+        <fallback-mount>/fallback-[192].aac</fallback-mount>
+        <fallback-override>all</fallback-override>
+    </mount>
+    <mount type="normal"> 
+        <mount-name>/stream</mount-name> 
+        <charset>UTF-8</charset>
+        <!-- <fallback-mount>/fallback-[192].aac</fallback-mount> -->
+        <fallback-mount>/coma</fallback-mount>
+        <fallback-override>all</fallback-override>
+    </mount>
+    <mount type="normal">
+        <mount-name>/cdp</mount-name>
+        <charset>UTF-8</charset>
+        <fallback-mount>/fallback-[192].aac</fallback-mount>    
+        <fallback-override>all</fallback-override>
+    </mount>
+    <!-- Relays can also go into a <mount type="normal"> section -->
+    <!--
+    <mount type="normal">
+        <mount-name>/relay_example.ogg</mount-name>
+        <relay>
+            <upstream type="normal">
+                <uri>http://master0.example.org:8000/example.ogg</uri>
+            </upstream>
+        </relay>
+    </mount>
+    -->
+    <paths>
+        <!-- basedir is only used if chroot is enabled -->
+        <basedir>/usr/share/icecast</basedir>
+
+        <!-- Note that if <chroot> is turned on below, these paths must both
+             be relative to the new root, not the original root -->
+        <logdir>/var/log/icecast</logdir>
+        <webroot>/usr/share/icecast/web</webroot>
+        <adminroot>/usr/share/icecast/admin</adminroot>
+        <reportxmldb>/usr/share/icecast/report-db.xml</reportxmldb>
+        <!-- <pidfile>/usr/share/icecast2/icecast.pid</pidfile> -->
+        <!-- Aliases: treat requests for 'source' path as being for 'dest' path
+             May be made specific to a port or bound address using the "port"
+             and "bind-address" attributes.
+          -->
+        <!--
+        <alias source="/foo" destination="/bar"/>
+        -->
+        <!-- Aliases: can also be used for simple redirections as well,
+             this example will redirect all requests for http://server:port/ to
+             the status page
+        -->
+        <alias source="/" destination="/status.xsl"/>
+    </paths>
+    <logging>
+        <accesslog>access.log</accesslog>
+        <errorlog>error.log</errorlog>
+        <!-- <playlistlog>playlist.log</playlistlog> -->
+        <loglevel>information</loglevel> <!-- "debug", "information", "warning", or "error" -->
+        <logsize>10000</logsize> <!-- Max size of a logfile -->
+        <!-- If logarchive is enabled (1), then when logsize is reached
+             the logfile will be moved to [error|access|playlist].log.DATESTAMP,
+             otherwise it will be moved to [error|access|playlist].log.old.
+             Default is non-archive mode (i.e. overwrite)
+        -->
+        <!-- <logarchive>true</logarchive> -->
+    </logging>
+
+    <security>
+        <chroot>false</chroot>
+        <tls-context>
+            <tls-certificate>/usr/share/icecast/concat-om.pem</tls-certificate>
+            <!-- The private key if not contained in <tls-certificate>.
+                Must be PEM encoded.
+                <tls-key>/usr/share/icecast/icecast.key</tls-key>
+            -->
+            <!-- <x-forwarded-for>172.20.0.1</x-forwarded-for> -->
+        </tls-context>
+        <!-- It is generally helpful to set a PRNG seed, what seed to set depends on your OS. -->
+        <!-- Useful on all operating systems is a seed file for Icecast to update.
+             This should be at some location that is (semi-)permanent such as /var/lib or /var/cache
+             A size of 1024 [byte] is suggested.
+             The file can be shared with trusted applications (other instances of Icecast).
+             But should be protected against read and write access by untrusted applications.
+        <prng-seed type="read-write" size="1024">/path/to/storage/icecast.prng-seed</prng-seed>
+        -->
+        <!-- A profile includes common sources of entropy therefore provides a good way to
+             seed the PRNG.
+             Currently defined profiles are: bsd, linux.
+             The bsd profile expects /dev/urandom to be readable.
+             The linux profile includes the bsd profile but adds linux specific interfaces (such as /proc).
+        <prng-seed type="profile">linux</prng-seed>
+        -->
+        <!-- If your OS provides a urandom style device and there is no profile for your OS you can
+             provide a custom device name.
+             The size parameter defines how many bytes are read per (re)seeding. The optimal setting
+             depends on the quality of your device, a general good default is 32 [byte].
+        <prng-seed type="device" size="32">/dev/urandom</prng-seed>
+        -->
+        <!-- If none of above is available on your OS you can add a static seed.
+             This is by far not as secure as the above.
+             The value should be at least 64 characters long if from [a-zA-Z0-9].
+             You MUST keep this parameter secret. It MUST NOT be shared with other instances.
+             You SHOULD change this parameter often.
+        <prng-seed type="static">U4V5etZF...</prng-seed>
+        -->
+        <prng-seed type="read-write" size="1024">/var/cache/icecast.prng-seed</prng-seed>
+        <prng-seed type="profile">linux</prng-seed>
+    </security>
+</icecast>
+
