@@ -3,7 +3,7 @@
     <admin>radio@omFM.ru</admin>
     <limits>
         <clients>1000</clients>
-        <sources>10</sources>
+        <sources>25</sources>
         <queue-size>524288</queue-size>
         <client-timeout>60</client-timeout>
         <header-timeout>15</header-timeout>

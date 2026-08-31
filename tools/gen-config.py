@@ -12,6 +12,7 @@
 
 import json
 import pathlib
+import re
 import sys
 import tomllib
 
@@ -83,7 +84,31 @@ def load():
                 die(f"{where}: порт {port} уже занят ({seen_ports[port]})")
             seen_ports[port] = f"{key}.{field}"
 
+    check_icecast_limits(stations)
+
     return stations, paths
+
+
+def check_icecast_limits(stations):
+    """Каждая станция — отдельный source для Icecast: своя даёт подключение
+    от Liquidsoap, релей — исходящее соединение к апстриму. Упереться в
+    <sources> проще, чем кажется, и проявляется это молчаливым отказом
+    подключиться, а не понятной ошибкой."""
+    text = ICECAST.read_text(encoding="utf-8")
+    match = re.search(r"<sources>(\d+)</sources>", text)
+    if not match:
+        return
+
+    limit, need = int(match.group(1)), len(stations)
+    if need > limit:
+        die(
+            f"станций {need}, а в icecast.xml <sources>{limit}</sources> — "
+            f"лишние источники просто не подключатся.\n"
+            f"           подними лимит до {need + 5} и повтори"
+        )
+    if need > limit - 2:
+        print(f"gen-config: внимание — станций {need} при лимите "
+              f"<sources>{limit}</sources>, запас почти исчерпан", file=sys.stderr)
 
 
 def die(message):
