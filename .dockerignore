@@ -1,0 +1,12 @@
+# Контекст сборки уходит демону целиком — лишнее сюда попадать не должно.
+.git
+.env
+.env.example
+node_modules
+docker/liquidsoap/log
+docker/centrifugo/config.toml
+docker/listeners_monitor/*.txt
+README.md
+Makefile
+tools
+*.md
