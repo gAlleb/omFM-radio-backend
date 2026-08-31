@@ -15,27 +15,62 @@ Liquidsoap ──POST /np/:station──> omfmapi ──publish──> Centrifug
     AzuraCast API ───────────────────┘
 ```
 
-## Добавить станцию
+## Станции: добавить, удалить
 
-Всё описывается **одним блоком** в [stations.toml](stations.toml) — это
-единственный источник правды. Дальше:
+Единственный источник правды — [stations.toml](stations.toml). Всё остальное
+из него генерируется командой `make apply`.
 
-```bash
-make apply
-```
+### Что руками, а что само
 
-Ретранслировать чужой поток — три обязательных поля:
+| | Руками | Генератором |
+|---|---|---|
+| **Релей** | блок в `stations.toml` | всё остальное |
+| **Своя станция** | блок в `stations.toml`, каталог с `index.liq`, каталог для HLS на сервере | всё остальное |
+
+«Всё остальное» — это:
+
+| Файл | Что получает |
+|---|---|
+| `docker/generated/stations.json` | реестр для omfmapi и listeners_monitor |
+| `docker/icecast/config/icecast.xml` | `<relay>` и `<mount>` |
+| `docker-compose.yaml` | сервис `liquidsoap-<станция>`: порты, volume'ы, healthcheck, переменные окружения |
+
+Правится только между маркерами `GENERATED` — руками туда не лезть. `make check`
+уронит сборку, если сгенерированное разъедется с реестром.
+
+Генератор проверяет дубли `mount` и портов, обязательные поля и запас по
+лимиту `<sources>` у Icecast — опечатка ловится до деплоя, а не в эфире.
+
+### Добавить релей
+
+Одна правка и одна команда.
+
+**1.** Блок в `stations.toml`:
 
 ```toml
 [stations.newfm]
 kind     = "relay"
 name     = "New FM"
 mount    = "/newfm"
+fallback = "/fallback-[192].aac"
 upstream = "http://radio.omfm.ru:8100/newfm.aac"
-azuracast_id = 42   # только если станция на нашем AzuraCast
+azuracast_id = 42   # только если станция на нашем AzuraCast — иначе не указывать
+monitor  = true     # false — не собирать по ней статистику слушателей
 ```
 
-Своя станция (отдельный контейнер с Liquidsoap) — плюс порты и плейлист:
+**2.** Сгенерировать и применить:
+
+```bash
+make apply && make verify
+docker compose up -d --build icecast
+```
+
+`--build` обязателен: `icecast.xml` вшивается в образ при сборке, без
+пересборки новый mount не появится. Слушателей на минуту отцепит.
+
+### Добавить свою станцию
+
+**1.** Блок в `stations.toml`:
 
 ```toml
 [stations.night]
@@ -43,19 +78,99 @@ kind         = "local"
 name         = "omFM Night"
 shortcode    = "night"        # канал Centrifugo: station:night
 mount        = "/night"
-harbor_port  = 8009
+fallback     = "/fallback-[192].aac"
+description  = "Ночной эфир"  # уходит в output.icecast
+genre        = "Lofi"
+url          = "https://omfm.ru"
+timezone     = "Europe/Moscow"
+harbor_port  = 8009           # свободный, генератор проверит
 telnet_port  = 1236
 hls_playlist = "night.m3u8"
+monitor      = true
 ```
 
-Для своей станции дополнительно нужен один файл — `index.liq` в
-`docker/liquidsoap/rootfs/home/radio/liquidsoap/night/`. В нём только
-источники и расписание; вся общая обвязка подключается из `../lib`,
-а параметры станции приходят из окружения. Проще всего взять за образец
-`omfm/index.liq` или `cdp/index.liq`.
+**2.** Каталог со скриптом — берём за образец существующую станцию:
 
-Volume'ы, порты, healthcheck и переменные окружения генерируются сами —
-пути берутся из секции `[paths]`.
+```bash
+mkdir -p docker/liquidsoap/rootfs/home/radio/liquidsoap/night
+cp docker/liquidsoap/rootfs/home/radio/liquidsoap/cdp/index.liq \
+   docker/liquidsoap/rootfs/home/radio/liquidsoap/night/
+```
+
+Дальше в этом `index.liq` правятся **только источники и расписание**. Всё
+остальное подключается из `../lib`, параметры приходят из окружения — трогать
+их в скрипте не нужно. Каталог `log` внутри контейнера создаст Dockerfile.
+
+**3.** Каталог для HLS-сегментов **на сервере** (путь из `[paths] hls_root`):
+
+```bash
+mkdir -p /var/www/html/omfm/hls/night
+```
+
+**4.** Сгенерировать, проверить, поднять:
+
+```bash
+make apply && make verify
+make station-deploy STATION=night
+```
+
+**5.** Убедиться, что встало:
+
+```bash
+make station-status                      # должно дойти до healthy, до 90 секунд
+docker compose logs --tail=50 liquidsoap-night
+```
+
+Если в логах сыпется `Failed to obtain a media request` — плейлист не отдаёт
+треков, смотри пути к музыке в `index.liq`.
+
+### Удалить релей
+
+**1.** Убрать блок из `stations.toml`.
+
+**2.**
+
+```bash
+make apply && make verify
+docker compose up -d --build icecast
+```
+
+### Удалить свою станцию
+
+**1.** Убрать блок из `stations.toml`.
+
+**2.** Остановить и удалить контейнер — сам он не исчезнет:
+
+```bash
+docker compose stop liquidsoap-night && docker compose rm -f liquidsoap-night
+```
+
+Это важно сделать **до** `make apply`: после того как сервис пропадёт из
+compose, `docker compose` перестанет его знать, контейнер останется висеть
+как orphan и будет держать свои порты.
+
+Если уже применил и контейнер завис сиротой:
+
+```bash
+docker rm -f liquidsoap-night          # либо docker compose up -d --remove-orphans
+```
+
+**3.** Применить и пересобрать Icecast (у станции был свой mount):
+
+```bash
+make apply && make verify
+docker compose up -d --build icecast
+```
+
+**4.** Прибрать за собой — уже не обязательно, но чтобы не копилось:
+
+```bash
+rm -rf docker/liquidsoap/rootfs/home/radio/liquidsoap/night
+rm -rf /var/www/html/omfm/hls/night     # на сервере
+```
+
+Станция сразу пропадёт из `/listeners` и `/np`, а её порты освободятся для
+следующей.
 
 ### Как устроены скрипты Liquidsoap
 
@@ -72,20 +187,6 @@ lib/output.liq       выходы Icecast и HLS
 Станция может дополнить payload своим блоком: так cdp добавляет
 `playing_next`, которого у omfm нет — при нескольких плейлистах и
 расписании следующий трек достоверно не предсказать.
-
-`make apply` разложит остальное:
-
-| Файл | Что получает |
-|---|---|
-| `docker/generated/stations.json` | реестр для omfmapi и listeners_monitor |
-| `docker/icecast/config/icecast.xml` | `<relay>` и `<mount>` |
-| `docker-compose.yaml` | сервис `liquidsoap-<станция>` с портами, volume'ами и healthcheck |
-
-Всё это правится **только между маркерами `GENERATED`** — руками туда не лезть,
-`make check` уронит сборку, если сгенерированное разъедется с реестром.
-
-Генератор проверяет дубли mount и портов и обязательные поля, так что
-опечатка ловится до деплоя, а не в эфире.
 
 ### Одна станция — один контейнер
 
