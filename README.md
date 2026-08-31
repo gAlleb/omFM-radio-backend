@@ -35,7 +35,7 @@ upstream = "http://radio.omfm.ru:8100/newfm.aac"
 azuracast_id = 42   # только если станция на нашем AzuraCast
 ```
 
-Своя станция (отдельный процесс Liquidsoap) — плюс порты и плейлист:
+Своя станция (отдельный контейнер с Liquidsoap) — плюс порты и плейлист:
 
 ```toml
 [stations.night]
@@ -50,8 +50,8 @@ hls_playlist = "night.m3u8"
 
 Для своей станции дополнительно нужен каталог со скриптом:
 `docker/liquidsoap/rootfs/home/radio/liquidsoap/night/` с `index.liq`
-(проще всего скопировать с существующей станции), а в `docker-compose.yaml` —
-volume для её HLS-сегментов.
+(проще всего скопировать с существующей станции). Volume'ы, порты и
+healthcheck генерируются сами — пути берутся из секции `[paths]`.
 
 `make apply` разложит остальное:
 
@@ -59,14 +59,31 @@ volume для её HLS-сегментов.
 |---|---|
 | `docker/generated/stations.json` | реестр для omfmapi и listeners_monitor |
 | `docker/icecast/config/icecast.xml` | `<relay>` и `<mount>` |
-| `docker/liquidsoap/supervisord/supervisord.conf` | `[program:liquidsoap-*]` |
-| `docker-compose.yaml` | проброс harbor/telnet портов |
+| `docker-compose.yaml` | сервис `liquidsoap-<станция>` с портами, volume'ами и healthcheck |
 
 Всё это правится **только между маркерами `GENERATED`** — руками туда не лезть,
 `make check` уронит сборку, если сгенерированное разъедется с реестром.
 
 Генератор проверяет дубли mount и портов и обязательные поля, так что
 опечатка ловится до деплоя, а не в эфире.
+
+### Одна станция — один контейнер
+
+Каждая своя станция это отдельный сервис `liquidsoap-<имя>`, а не процесс
+внутри общего контейнера под supervisord. Что это даёт:
+
+- **healthcheck на harbor-порт** ловит не только падение, но и **зависание**.
+  Supervisord перезапускал только упавший процесс; повисший liquidsoap
+  (при живом процессе и мёртвом эфире) он не трогал вовсе.
+- станцию можно пересобрать и перезапустить, **не прерывая эфир остальных**
+- состояние каждой станции видно в `docker compose ps` и `docker logs`
+
+```bash
+make station-deploy  STATION=cdp   # пересобрать и поднять только cdp
+make station-restart STATION=cdp
+make station-logs    STATION=cdp
+make station-status                # состояние и healthcheck всех станций
+```
 
 ## Команды
 

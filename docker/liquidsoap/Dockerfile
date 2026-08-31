@@ -23,7 +23,6 @@ USER root
 ENV TZ=UTC
 
 RUN addgroup -g "${USER_GID}" radio && adduser -u "${USER_UID}" -G radio -S radio
-RUN mkdir -p /var/log/supervisor
 
 #RUN  --mount=type=bind,target=/packages,source=/packages,from=downloader \
 RUN   apk add --no-cache --allow-untrusted \
@@ -35,22 +34,18 @@ RUN   apk add --no-cache --allow-untrusted \
       tzdata \
       curl \ 
       bash \
-      supervisor \
       ;
 
 COPY ./docker/liquidsoap/rootfs /
-COPY ./docker/liquidsoap/supervisord/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-RUN chmod +x /usr/bin/entrypoint
-RUN chmod +x /usr/bin/docker-entrypoint
 RUN chmod +x /usr/bin/cue_file
 RUN chmod +x /usr/bin/telegram-send-omfm
 
 
 RUN chown -R radio:radio /home/radio 
-# Grant everyone write permissions on the supervisor logs
-RUN chmod -R a+w /var/log/supervisor
+# Одна станция — один контейнер, один процесс.
+# Скрипт станции передаётся как command из docker-compose.yaml,
+# он же генерируется из stations.toml.
+USER radio
 
-USER root
-
-ENTRYPOINT [ "docker-entrypoint" ]
+ENTRYPOINT [ "/usr/bin/liquidsoap" ]

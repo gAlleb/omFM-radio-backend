@@ -1,3 +1,32 @@
+# Общая часть всех станций Liquidsoap. Сами сервисы генерируются
+# из stations.toml — см. блок GENERATED ниже.
+x-liquidsoap: &liquidsoap
+  build:
+    context: ./
+    dockerfile: ./docker/liquidsoap/Dockerfile
+    args:
+      - "USER_UID=${USER_UID:-1000}"
+      - "USER_GID=${USER_GID:-1000}"
+  environment:
+    - "TZ=Europe/Moscow"
+    - ICECAST_SOURCE_PASSWORD
+    - OMFMAPI_USER
+    - OMFMAPI_PASSWORD
+    - LASTFM_OMFM_API_KEY
+    - LASTFM_OMFM_API_SECRET
+    - LASTFM_CDP_API_KEY
+    - LASTFM_CDP_API_SECRET
+  networks:
+    - omfm-network
+  depends_on:
+    - omfmapi
+  restart: always
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "5"
+
 services:
   omfmapi:
     container_name: omfmAPI
@@ -76,59 +105,49 @@ services:
         max-file: "3"
 
 
-  liquidsoap:
-    build:
-      context: ./
-      dockerfile: ./docker/liquidsoap/Dockerfile
-      args:
-        - "USER_UID=${USER_UID:-1000}"
-        - "USER_GID=${USER_GID:-1000}"
-    #image: savonet/liquidsoap-alpine:10453cf
-    #image: savonet/liquidsoap-alpine:v2.2.5
-    # user: 1000:1000
-    container_name: liquidsoap
-    environment:
-      - "TZ=Europe/Moscow"
-      - ICECAST_SOURCE_PASSWORD
-      - OMFMAPI_USER
-      - OMFMAPI_PASSWORD
-      - LASTFM_OMFM_API_KEY
-      - LASTFM_OMFM_API_SECRET
-      - LASTFM_CDP_API_KEY
-      - LASTFM_CDP_API_SECRET
-    command:
-      - /usr/bin/docker-entrypoint
+  # GENERATED from stations.toml — не править вручную, см. make apply
+  liquidsoap-omfm:
+    <<: *liquidsoap
+    container_name: liquidsoap-omfm
+    command: /home/radio/liquidsoap/omfm/index.liq
+    ports:
+      - 127.0.0.1:8007:8007
+      - 127.0.0.1:1234:1234
     volumes:
-      #- /var/www/html/omfmsse/omFM_build/docker/liquidsoap/rootfs/home/radio/liquidsoap/omfm/index.liq:/home/radio/liquidsoap/omfm/index.liq
-      #- /var/www/html/omfmsse/omFM_build/docker/liquidsoap/rootfs/home/radio/liquidsoap/omfm/omfm.liq:/home/radio/liquidsoap/omfm/omfm.liq
-      #- /var/www/html/omfmsse/omFM_build/docker/liquidsoap/rootfs/home/radio/playlist:/home/radio/playlist
       - /var/www/html/omfm/hls/omfm:/home/radio/liquidsoap/omfm/hls
+      - /mnt/GoogleDrive:/mnt/GoogleDrive:ro
+      - /home/radio/music:/home/radio/music
+      - ./docker/liquidsoap/rootfs/home/radio/playlist:/home/radio/playlist
+    healthcheck:
+      # Ловит не только падение, но и зависание: если harbor перестал
+      # отвечать, контейнер перезапустится сам. Supervisord так не умел.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8007/nowplaying"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  liquidsoap-cdp:
+    <<: *liquidsoap
+    container_name: liquidsoap-cdp
+    command: /home/radio/liquidsoap/cdp/index.liq
+    ports:
+      - 127.0.0.1:8008:8008
+      - 127.0.0.1:1235:1235
+    volumes:
       - /var/www/html/omfm/hls/cdp:/home/radio/liquidsoap/cdp/hls
       - /mnt/GoogleDrive:/mnt/GoogleDrive:ro
-      #- /mnt/GoogleDriveMusic:/mnt/GoogleDrive:ro
       - /home/radio/music:/home/radio/music
-      #- ./docker/liquidsoap/rootfs/home/radio/liquidsoap/omfm/log:/home/radio/liquidsoap/omfm/log
-      #- ./docker/liquidsoap/rootfs/home/radio/liquidsoap/cdp/log:/home/radio/liquidsoap/cdp/log
       - ./docker/liquidsoap/rootfs/home/radio/playlist:/home/radio/playlist
-      - ./docker/liquidsoap/log:/var/log/supervisor
-      # - ./docker/liquidsoap/rootfs/home/radio/liquidsoap/test_gaps/log:/home/radio/liquidsoap/test_gaps/log
-    ports:
-      # GENERATED from stations.toml — не править вручную, см. make apply
-       - 127.0.0.1:8007:8007
-       - 127.0.0.1:1234:1234
-       - 127.0.0.1:8008:8008
-       - 127.0.0.1:1235:1235
+    healthcheck:
+      # Ловит не только падение, но и зависание: если harbor перестал
+      # отвечать, контейнер перезапустится сам. Supervisord так не умел.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8008/nowplaying"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
 # GENERATED end
-    networks:
-      - omfm-network
-    depends_on:
-      - omfmapi
-    restart: always
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "1m"
-        max-file: "3"
 
   icecast:
     #image: libretime/icecast:2.5-beta3-alpine

@@ -1,4 +1,5 @@
-.PHONY: help apply check secrets liq-check verify up down logs
+.PHONY: help apply check secrets liq-check verify up down logs \
+        station-deploy station-restart station-logs station-status
 
 help:
 	@echo "Стек omFM"
@@ -10,6 +11,13 @@ help:
 	@echo "  make verify     check + liq-check + валидация compose"
 	@echo
 	@echo "  make up / down / logs"
+	@echo
+	@echo "  Одна станция — один контейнер, поэтому их можно трогать по отдельности,"
+	@echo "  не прерывая эфир остальных:"
+	@echo "    make station-deploy  STATION=cdp   пересобрать и поднять только её"
+	@echo "    make station-restart STATION=cdp"
+	@echo "    make station-logs    STATION=cdp"
+	@echo "    make station-status                состояние и healthcheck всех станций"
 
 # Единственный источник правды — stations.toml. Всё остальное производно.
 apply:
@@ -47,6 +55,26 @@ verify: check liq-check
 	@node --check docker/omfmapi/app/server.js && echo "  server.js ok"
 	@python3 -c "import ast;ast.parse(open('docker/listeners_monitor/hls_listeners_api.py').read())" \
 	  && echo "  hls_listeners_api.py ok"
+
+require-station:
+	@test -n "$(STATION)" || { echo "укажи станцию: make $(MAKECMDGOALS) STATION=<имя>"; exit 1; }
+	@python3 -c "import json,sys; \
+	  st=json.load(open('docker/generated/stations.json'))['stations']; \
+	  sys.exit(0) if st.get('$(STATION)',{}).get('kind')=='local' else \
+	  (print('нет своей станции $(STATION); есть: '+', '.join(k for k,v in st.items() if v['kind']=='local')), sys.exit(1))"
+
+# Пересобирает и поднимает ТОЛЬКО указанную станцию — эфир остальных не прерывается.
+station-deploy: require-station check
+	docker compose up -d --build liquidsoap-$(STATION)
+
+station-restart: require-station
+	docker compose restart liquidsoap-$(STATION)
+
+station-logs: require-station
+	docker compose logs -f --tail=200 liquidsoap-$(STATION)
+
+station-status:
+	@docker compose ps --format 'table {{.Service}}\t{{.Status}}' | command grep -E 'SERVICE|liquidsoap-'
 
 up: check
 	docker compose up -d --build

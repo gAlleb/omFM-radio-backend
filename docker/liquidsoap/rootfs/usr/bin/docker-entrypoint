@@ -1,6 +1,0 @@
-#!/bin/sh
-# Start supervisord
-/usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
-
-# Keep the container running (important!)
-tail -f /dev/null

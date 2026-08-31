@@ -20,7 +20,6 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 REGISTRY = ROOT / "stations.toml"
 OUT_JSON = ROOT / "docker/generated/stations.json"
 ICECAST = ROOT / "docker/icecast/config/icecast.xml"
-SUPERVISORD = ROOT / "docker/liquidsoap/supervisord/supervisord.conf"
 COMPOSE = ROOT / "docker-compose.yaml"
 
 BEGIN = "GENERATED from stations.toml — не править вручную, см. make apply"
@@ -43,6 +42,13 @@ def load():
     stations = data.get("stations")
     if not stations:
         die(f"{REGISTRY.name}: не найдено ни одной станции")
+
+    paths = data.get("paths")
+    if not paths:
+        die(f"{REGISTRY.name}: не найдена секция [paths]")
+    for field in ("hls_root", "music", "googledrive", "playlists"):
+        if field not in paths:
+            die(f"[paths]: не задано поле {field}")
 
     seen_mounts, seen_ports = {}, {}
 
@@ -77,7 +83,7 @@ def load():
                 die(f"{where}: порт {port} уже занят ({seen_ports[port]})")
             seen_ports[port] = f"{key}.{field}"
 
-    return stations
+    return stations, paths
 
 
 def die(message):
@@ -134,34 +140,41 @@ def gen_icecast(stations):
     return "\n".join(relays) + "\n" + "\n".join(mounts)
 
 
-def gen_supervisord(stations):
+def gen_compose_services(stations, paths):
+    """Сервис docker-compose на каждую свою станцию.
+
+    Общая часть вынесена в YAML-якорь x-liquidsoap в самом compose-файле,
+    здесь только то, что отличается от станции к станции.
+    """
     blocks = []
+
     for key, st in stations.items():
         if st["kind"] != "local":
             continue
+        harbor, telnet = st["harbor_port"], st["telnet_port"]
         blocks.append(
-            f"""[program:liquidsoap-{key}]
-command=/usr/bin/liquidsoap /home/radio/liquidsoap/{key}/index.liq
-user=radio
-autostart=true
-autorestart=true
-redirect_stderr=true
-stdout_logfile=/var/log/supervisor/liquidsoap-{key}.log
-stdout_logfile_maxbytes=5MB
-stdout_logfile_backups=5
-stdout_capture_maxbytes=1MB"""
+            f"""  liquidsoap-{key}:
+    <<: *liquidsoap
+    container_name: liquidsoap-{key}
+    command: /home/radio/liquidsoap/{key}/index.liq
+    ports:
+      - 127.0.0.1:{harbor}:{harbor}
+      - 127.0.0.1:{telnet}:{telnet}
+    volumes:
+      - {paths['hls_root']}/{key}:/home/radio/liquidsoap/{key}/hls
+      - {paths['googledrive']}:{paths['googledrive']}:ro
+      - {paths['music']}:{paths['music']}
+      - {paths['playlists']}:/home/radio/playlist
+    healthcheck:
+      # Ловит не только падение, но и зависание: если harbor перестал
+      # отвечать, контейнер перезапустится сам. Supervisord так не умел.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:{harbor}/nowplaying"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s"""
         )
     return "\n\n".join(blocks)
-
-
-def gen_compose_ports(stations):
-    lines = []
-    for key, st in stations.items():
-        if st["kind"] != "local":
-            continue
-        lines.append(f"       - 127.0.0.1:{st['harbor_port']}:{st['harbor_port']}")
-        lines.append(f"       - 127.0.0.1:{st['telnet_port']}:{st['telnet_port']}")
-    return "\n".join(lines)
 
 
 # --------------------------------------------------------------------------
@@ -187,13 +200,12 @@ def splice(path, body, comment):
 
 def main():
     check_only = "--check" in sys.argv
-    stations = load()
+    stations, paths = load()
 
     targets = [
         (OUT_JSON, gen_stations_json(stations), None),
         (ICECAST, gen_icecast(stations), ("<!--", "-->")),
-        (SUPERVISORD, gen_supervisord(stations), "#"),
-        (COMPOSE, gen_compose_ports(stations), "#"),
+        (COMPOSE, gen_compose_services(stations, paths), "#"),
     ]
 
     stale = []

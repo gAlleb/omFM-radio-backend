@@ -24,6 +24,14 @@
 #
 #   monitor = false — станция не попадает в статистику слушателей вообще.
 
+# Пути на хосте, общие для всех своих станций.
+# hls_root/<станция> монтируется внутрь контейнера как каталог HLS-сегментов.
+[paths]
+hls_root    = "/var/www/html/omfm/hls"
+music       = "/home/radio/music"
+googledrive = "/mnt/GoogleDrive"
+playlists   = "./docker/liquidsoap/rootfs/home/radio/playlist"
+
 [stations.omfm]
 kind         = "local"
 name         = "omFM"
