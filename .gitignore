@@ -27,3 +27,10 @@ docker/omfmapi/app/server_omfm_only.js
 docker/liquidsoap/rootfs/home/radio/liquidsoap/*/omfm.liq_2.4
 docker/liquidsoap/rootfs/home/radio/liquidsoap/*/omfm.liq_2.5
 docker/liquidsoap/rootfs/home/radio/liquidsoap/*/omfm.liq.2.5
+
+# временный файл на время удаления станции (./omfm station rm)
+stations.toml.tmp
+
+# байткод python (мастер станций импортирует gen-config)
+__pycache__/
+*.pyc

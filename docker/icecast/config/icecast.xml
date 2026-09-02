@@ -41,7 +41,7 @@
         <header type="cors" name="Access-Control-Expose-Headers" />
     </http-headers>
 
-<!-- GENERATED from stations.toml — не править вручную, см. make apply -->
+<!-- GENERATED from stations.toml — не править вручную, см. ./omfm apply -->
     <relay>
         <local-mount>/rock</local-mount>
         <on-demand>false</on-demand>

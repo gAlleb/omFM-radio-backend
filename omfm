@@ -1,0 +1,295 @@
+#!/usr/bin/env bash
+#
+# Управление стеком omFM.
+#
+# Единственный источник правды — stations.toml, всё остальное из него
+# генерируется. Скрипт запускается из любого каталога: он сам переходит
+# в корень репозитория, потому что docker compose и пути в конфигах
+# рассчитаны на него.
+
+set -euo pipefail
+
+cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+
+LIQ_IMAGE="${LIQ_IMAGE:-savonet/liquidsoap-alpine:v2.4.5}"
+LIQ_ROOT="$PWD/docker/liquidsoap/rootfs/home/radio"
+STATIONS_JSON="docker/generated/stations.json"
+
+die() {
+    printf '%s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<'EOF'
+Стек omFM
+
+  ./omfm apply      сгенерировать конфиги из stations.toml
+  ./omfm check      проверить, что конфиги не разъехались с реестром
+  ./omfm secrets    пересобрать docker-секреты (*.txt) из .env
+  ./omfm liq-check  проверить синтаксис всех .liq (liquidsoap --check)
+  ./omfm verify     check + liq-check + валидация compose и исходников
+
+  ./omfm up / down / logs
+
+  Одна станция — один контейнер, поэтому их можно трогать по отдельности,
+  не прерывая эфир остальных:
+    ./omfm station deploy cdp    пересобрать и поднять только её
+    ./omfm station restart cdp
+    ./omfm station logs cdp
+    ./omfm station status        состояние и healthcheck всех станций
+
+  Реестр правится диалогом — порты, mount и остальное предлагаются сами:
+    ./omfm station new           своя станция: блок, каталог, index.liq
+    ./omfm relay new             ретрансляция чужого потока
+    ./omfm station rm <имя>      убрать станцию из реестра
+    ./omfm relay rm <имя>        убрать релей
+EOF
+}
+
+# Сгенерированный реестр лежит в git, но в свежем дереве его может не быть,
+# а без него команды по станциям сыпались бы трейсбеком из python.
+need_registry() {
+    [[ -r $STATIONS_JSON ]] || die "нет $STATIONS_JSON — сгенерируй его:
+
+  ./omfm apply"
+}
+
+# Ключи своих станций — из сгенерированного реестра, а не из stations.toml,
+# чтобы не тащить в bash разбор TOML.
+local_stations() {
+    need_registry
+    python3 - "$STATIONS_JSON" <<'PY'
+import json, sys
+try:
+    stations = json.load(open(sys.argv[1]))["stations"]
+except (ValueError, KeyError) as exc:
+    sys.exit(f"{sys.argv[1]} нечитаем ({exc}) — восстанови через ./omfm apply")
+print(" ".join(k for k, v in stations.items() if v["kind"] == "local"))
+PY
+}
+
+cmd_apply() {
+    python3 tools/gen-config.py
+}
+
+cmd_check() {
+    python3 tools/gen-config.py --check
+}
+
+# Секреты дублировали значения из .env; теперь они из него и берутся.
+# Пустое значение здесь опаснее ошибки: контейнер поднимется с пустым
+# паролем вместо того, чтобы не подняться вовсе. Поэтому проверяем все
+# переменные разом и объясняем, чего именно не хватает.
+SECRET_VARS=(
+    "OMFMAPI_USER:docker/listeners_monitor/api_username.txt"
+    "OMFMAPI_PASSWORD:docker/listeners_monitor/api_password.txt"
+    "ICECAST_ADMIN_USERNAME:docker/listeners_monitor/icecast_username.txt"
+    "ICECAST_ADMIN_PASSWORD:docker/listeners_monitor/icecast_password.txt"
+)
+
+cmd_secrets() {
+    if [[ ! -f .env ]]; then
+        printf '%s\n' \
+            "секреты не пересобраны: в корне репозитория нет .env" \
+            "" \
+            "Он не хранится в git. Заведи его из образца и заполни значения:" \
+            "" \
+            "  cp .env.example .env" >&2
+        exit 1
+    fi
+
+    set -a
+    # shellcheck disable=SC1091
+    . ./.env
+    set +a
+
+    local entry var file missing=() empty=()
+
+    for entry in "${SECRET_VARS[@]}"; do
+        var=${entry%%:*}
+        if [[ -z ${!var+x} ]]; then
+            missing+=("$var")
+        elif [[ -z ${!var} ]]; then
+            empty+=("$var")
+        fi
+    done
+
+    if (( ${#missing[@]} + ${#empty[@]} > 0 )); then
+        {
+            echo "секреты не пересобраны: в .env не хватает значений"
+            echo
+            for var in ${missing[@]+"${missing[@]}"}; do
+                echo "  $var — строки нет в .env"
+            done
+            for var in ${empty[@]+"${empty[@]}"}; do
+                echo "  $var — строка есть, но значение пустое"
+            done
+            echo
+            echo "Из этих переменных собираются файлы docker/listeners_monitor/*.txt."
+            echo "Ими listeners_monitor ходит в omfmapi и в admin-интерфейс Icecast:"
+            echo "с пустым паролем он молча перестанет считать слушателей."
+            echo
+            echo "Что задать — видно в .env.example, имена там те же."
+        } >&2
+        exit 1
+    fi
+
+    for entry in "${SECRET_VARS[@]}"; do
+        var=${entry%%:*}
+        file=${entry#*:}
+        printf '%s' "${!var}" > "$file"
+    done
+
+    echo "секреты пересобраны из .env (${#SECRET_VARS[@]} файла в docker/listeners_monitor/)"
+}
+
+# --check не нужны настоящие значения, но порты должны быть числами.
+cmd_liq_check() {
+    local rc=0 st stations
+
+    # Список берётся в переменную, а не прямо в for: подстановка команды
+    # выполняется в подоболочке, и выход из неё по ошибке цикл бы не
+    # остановил — станций просто оказалось бы ноль, а команда отчиталась
+    # бы об успехе. Присваивание же роняет скрипт из-за set -e.
+    stations=$(local_stations)
+
+    for st in $stations; do
+        printf '  %-8s ' "$st"
+        if docker run --rm -v "$LIQ_ROOT:/home/radio:ro" \
+            -e STATION="$st" -e STATION_NAME=x -e STATION_SHORTCODE=x \
+            -e STATION_TIMEZONE=Europe/Moscow -e STATION_MOUNT=/x \
+            -e STATION_DESCRIPTION=x -e STATION_GENRE=x -e STATION_URL=x \
+            -e HARBOR_PORT=8007 -e TELNET_PORT=1234 -e HLS_PLAYLIST=x.m3u8 \
+            -e OMFMAPI_URL="http://omfmapi:9999/np/$st" \
+            -e ICECAST_SOURCE_PASSWORD=x -e OMFMAPI_USER=x -e OMFMAPI_PASSWORD=x \
+            -e LASTFM_API_KEY=x -e LASTFM_API_SECRET=x \
+            "$LIQ_IMAGE" liquidsoap --check "/home/radio/liquidsoap/$st/index.liq" \
+            >/dev/null 2>&1
+        then
+            echo "ok"
+        else
+            echo "ОШИБКА"
+            rc=1
+        fi
+    done
+    return "$rc"
+}
+
+cmd_verify() {
+    cmd_check
+    cmd_liq_check
+    docker compose config >/dev/null && echo "  compose  ok"
+    node --check docker/omfmapi/app/server.js && echo "  server.js ok"
+    python3 -c "import ast; ast.parse(open('docker/listeners_monitor/hls_listeners_api.py').read())" \
+        && echo "  hls_listeners_api.py ok"
+}
+
+cmd_up() {
+    cmd_check
+    docker compose up -d --build
+}
+
+cmd_down() {
+    docker compose down
+}
+
+cmd_logs() {
+    docker compose logs -f --tail=100
+}
+
+# Релеи живут в icecast и своего контейнера не имеют — команды станции
+# к ним неприменимы, поэтому проверяем kind, а не просто наличие ключа.
+require_station() {
+    local action=$1 name=${2:-}
+
+    [[ -n $name ]] || die "укажи станцию: ./omfm station $action <имя>"
+    need_registry
+
+    python3 - "$STATIONS_JSON" "$name" <<'PY'
+import json, sys
+path, name = sys.argv[1], sys.argv[2]
+try:
+    stations = json.load(open(path))["stations"]
+except (ValueError, KeyError) as exc:
+    sys.exit(f"{path} нечитаем ({exc}) — восстанови через ./omfm apply")
+if stations.get(name, {}).get("kind") != "local":
+    have = ", ".join(k for k, v in stations.items() if v["kind"] == "local")
+    sys.exit(f"нет своей станции {name}; есть: {have}")
+PY
+}
+
+cmd_station() {
+    local action=${1:-}
+    shift || true
+
+    case $action in
+        deploy)
+            require_station deploy "${1:-}"
+            cmd_check
+            # Пересобирает и поднимает ТОЛЬКО указанную станцию —
+            # эфир остальных не прерывается.
+            docker compose up -d --build "liquidsoap-$1"
+            ;;
+        restart)
+            require_station restart "${1:-}"
+            docker compose restart "liquidsoap-$1"
+            ;;
+        logs)
+            require_station logs "${1:-}"
+            docker compose logs -f --tail=200 "liquidsoap-$1"
+            ;;
+        status)
+            docker compose ps --format 'table {{.Service}}\t{{.Status}}' \
+                | command grep -E 'SERVICE|liquidsoap-' || true
+            ;;
+        new)
+            python3 tools/station.py new-local
+            ;;
+        rm)
+            [[ -n ${1:-} ]] || die "укажи станцию: ./omfm station rm <имя>"
+            python3 tools/station.py rm "$1" local
+            ;;
+        ""|help|-h|--help)
+            die "./omfm station <deploy|restart|logs|status|new|rm> [имя]"
+            ;;
+        *)
+            die "неизвестная команда: station $action (см. ./omfm help)"
+            ;;
+    esac
+}
+
+# Релеи живут только в icecast.xml, контейнера у них нет — поэтому
+# deploy/restart/logs к ним неприменимы, есть лишь правка реестра.
+cmd_relay() {
+    local action=${1:-}
+    shift || true
+
+    case $action in
+        new)
+            python3 tools/station.py new-relay
+            ;;
+        rm)
+            [[ -n ${1:-} ]] || die "укажи релей: ./omfm relay rm <имя>"
+            python3 tools/station.py rm "$1" relay
+            ;;
+        *)
+            die "./omfm relay <new|rm> [имя]"
+            ;;
+    esac
+}
+
+case ${1:-help} in
+    help|-h|--help) usage ;;
+    apply)          cmd_apply ;;
+    check)          cmd_check ;;
+    secrets)        cmd_secrets ;;
+    liq-check)      cmd_liq_check ;;
+    verify)         cmd_verify ;;
+    up)             cmd_up ;;
+    down)           cmd_down ;;
+    logs)           cmd_logs ;;
+    station)        shift; cmd_station "$@" ;;
+    relay)          shift; cmd_relay "$@" ;;
+    *)              die "неизвестная команда: $1 (см. ./omfm help)" ;;
+esac

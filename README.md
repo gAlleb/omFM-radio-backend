@@ -89,16 +89,109 @@ rebuild suddenly breaks something, look here first — the fix is to pin the
 ## Stations: adding and removing
 
 The single source of truth is [stations.toml](stations.toml). Everything else
-is generated from it by `make apply`.
+is generated from it. It is edited through a dialogue:
 
-### What you do by hand, and what is generated
+```bash
+./omfm station new          # an own station, played by our Liquidsoap
+./omfm relay new            # a relay of someone else's stream
+./omfm station rm night
+./omfm relay rm newfm
+```
 
-| | By hand | Generated |
-|---|---|---|
-| **Relay** | a block in `stations.toml` | everything else |
-| **Own station** | a block in `stations.toml`, a directory with `index.liq`, an HLS directory on the server | everything else |
+None of these take an irreversible step silently: before writing, the block
+that will go into the registry — or be cut out of it — is printed, and you are
+asked to confirm. Directories holding music and HLS segments are never deleted
+by the script, it only prints the commands.
 
-"Everything else" means:
+The file also cannot be left broken. The prospective registry is first run
+through the generator's own validator in full: a duplicate port, `mount` or
+`shortcode`, a missing required field, an exhausted `<sources>` limit — all of
+it is caught **before** the original changes. If the check fails, the station
+directory is not created either.
+
+### An own station
+
+`./omfm station new` asks for the station key and derives everything else from
+it, offering defaults that Enter accepts:
+
+| Field | Default |
+|---|---|
+| `name` | the key, capitalised |
+| `shortcode` | the key (Centrifugo channel `station:<shortcode>`) |
+| `mount` | `/<key>` |
+| `hls_playlist` | `<key>.m3u8` |
+| `harbor_port`, `telnet_port` | the first free ones, one above what is taken |
+| `fallback` | `/fallback-[192].aac` |
+| `timezone`, `url` | `Europe/Moscow`, `https://omfm.ru` |
+
+Then it does the rest itself:
+
+- appends the block **to the end** of `stations.toml`. The file is never
+  re-read or rewritten as a whole, so comments and formatting elsewhere are
+  guaranteed intact;
+- creates the station directory together with `log/` — without that directory
+  playlog fails with ENOENT and nothing but jingles goes on air;
+- copies `index.liq` from a template station and puts a reminder on top of what
+  to edit;
+- runs `./omfm apply`;
+- opens `index.liq` in `$EDITOR`.
+
+What is left by hand is what it prints at the end:
+
+```bash
+# 1. sources and schedule in index.liq — those cannot be generated
+# 2. the HLS segment directory ON THE SERVER, mounted by compose:
+mkdir -p /var/www/html/omfm/hls/night
+# 3. bring the station up without touching the others:
+./omfm verify && ./omfm station deploy night && ./omfm station status
+# 4. rebuild Icecast so the mount appears:
+docker compose up -d --build icecast
+```
+
+`--build` is mandatory: `icecast.xml` is baked into the image at build time, so
+without a rebuild the new mount will not appear. Listeners get dropped for about
+a minute.
+
+If the station's logs are full of `Failed to obtain a media request`, the
+playlist is not returning any tracks — check the music paths in `index.liq`.
+
+### A relay
+
+`./omfm relay new` is shorter: a relay has no container, no directory and no
+script — only an entry in `icecast.xml`. It asks for the key, name, `mount`,
+`upstream` and `azuracast_id`.
+
+`azuracast_id` is given only if the station lives on our AzuraCast and its
+listener list can be pulled from there. Without it the relay still plays, it
+just will not appear in the stats.
+
+Afterwards, one command:
+
+```bash
+docker compose up -d --build icecast
+```
+
+### Removing
+
+```bash
+./omfm station rm night
+```
+
+It shows the block to be cut, asks for confirmation, then offers to stop and
+remove the container. **That has to happen before `apply`**: once the service is
+gone from the compose file, `docker compose` no longer knows about it, and the
+container is left as an orphan still holding its ports. If it is already too
+late — `docker rm -f liquidsoap-night`.
+
+The registry edit is guarded: the result is first written to a temporary file
+and read back through `tomllib`. It replaces the original only if the set of
+stations shrank by exactly the one requested and every other station stayed
+identical. Otherwise the original is not touched at all.
+
+The station directory and the HLS directory on the server are printed, not
+deleted.
+
+### What gets generated
 
 | File | What it gets |
 |---|---|
@@ -107,18 +200,37 @@ is generated from it by `make apply`.
 | `docker-compose.yaml` | the `liquidsoap-<station>` service: ports, volumes, healthcheck, environment |
 
 Only the regions between the `GENERATED` markers are rewritten — do not edit
-them by hand. `make check` fails the build if the generated files drift out of
-sync with the registry.
+them by hand. The marker line itself is stored in those files and is what the
+generator uses to find them, so its text cannot be changed casually. `./omfm
+check` fails the build if the generated files drift out of sync with the
+registry.
 
-The generator validates duplicate `mount` values and ports, required fields,
-and the headroom left in Icecast's `<sources>` limit — so a typo is caught
-before deploy rather than on air.
+The generator validates duplicate `mount` values, ports and `shortcode`s,
+required fields, and the headroom left in Icecast's `<sources>` limit — so a
+typo is caught before deploy rather than on air. A duplicate `shortcode` is the
+nastiest of those: two stations would publish into the same Centrifugo channel
+and overwrite each other.
 
-### Adding a relay
+### If you edit the registry by hand
 
-One edit and one command.
+The dialogue does nothing magic, it simply appends a block like this:
 
-**1.** A block in `stations.toml`:
+```toml
+[stations.night]
+kind         = "local"
+timezone     = "Europe/Moscow"
+name         = "omFM Night"
+shortcode    = "night"        # Centrifugo channel: station:night
+mount        = "/night"
+fallback     = "/fallback-[192].aac"
+description  = "Night stream" # goes into output.icecast
+genre        = "Lofi"
+url          = "https://omfm.ru"
+harbor_port  = 8009
+telnet_port  = 1236
+hls_playlist = "night.m3u8"
+monitor      = true
+```
 
 ```toml
 [stations.newfm]
@@ -131,121 +243,7 @@ azuracast_id = 42   # only if the station lives on our AzuraCast — otherwise o
 monitor  = true     # false — do not collect listener stats for it
 ```
 
-**2.** Generate and apply:
-
-```bash
-make apply && make verify
-docker compose up -d --build icecast
-```
-
-`--build` is mandatory: `icecast.xml` is baked into the image at build time, so
-without a rebuild the new mount will not appear. Listeners get dropped for
-about a minute.
-
-### Adding your own station
-
-**1.** A block in `stations.toml`:
-
-```toml
-[stations.night]
-kind         = "local"
-name         = "omFM Night"
-shortcode    = "night"        # Centrifugo channel: station:night
-mount        = "/night"
-fallback     = "/fallback-[192].aac"
-description  = "Night stream" # goes into output.icecast
-genre        = "Lofi"
-url          = "https://omfm.ru"
-timezone     = "Europe/Moscow"
-harbor_port  = 8009           # must be free, the generator checks
-telnet_port  = 1236
-hls_playlist = "night.m3u8"
-monitor      = true
-```
-
-**2.** The script directory — take an existing station as a template:
-
-```bash
-mkdir -p docker/liquidsoap/rootfs/home/radio/liquidsoap/night
-cp docker/liquidsoap/rootfs/home/radio/liquidsoap/cdp/index.liq \
-   docker/liquidsoap/rootfs/home/radio/liquidsoap/night/
-```
-
-From there, edit **only the sources and the schedule** in that `index.liq`.
-Everything else is pulled in from `../lib`, and the parameters come from the
-environment — there is nothing to touch in the script. The `log` directory
-inside the container is created by the Dockerfile.
-
-**3.** A directory for HLS segments **on the server** (path from `[paths] hls_root`):
-
-```bash
-mkdir -p /var/www/html/omfm/hls/night
-```
-
-**4.** Generate, verify, bring it up:
-
-```bash
-make apply && make verify
-make station-deploy STATION=night
-```
-
-**5.** Confirm it started:
-
-```bash
-make station-status                      # should reach healthy, up to 90 seconds
-docker compose logs --tail=50 liquidsoap-night
-```
-
-If the logs are full of `Failed to obtain a media request`, the playlist is not
-returning any tracks — check the music paths in `index.liq`.
-
-### Removing a relay
-
-**1.** Delete the block from `stations.toml`.
-
-**2.**
-
-```bash
-make apply && make verify
-docker compose up -d --build icecast
-```
-
-### Removing your own station
-
-**1.** Delete the block from `stations.toml`.
-
-**2.** Stop and remove the container — it will not disappear on its own:
-
-```bash
-docker compose stop liquidsoap-night && docker compose rm -f liquidsoap-night
-```
-
-Do this **before** `make apply`: once the service is gone from the compose
-file, `docker compose` no longer knows about it, and the container is left
-hanging around as an orphan still holding its ports.
-
-If you already applied and the container is stuck as an orphan:
-
-```bash
-docker rm -f liquidsoap-night          # or docker compose up -d --remove-orphans
-```
-
-**3.** Apply and rebuild Icecast (the station had its own mount):
-
-```bash
-make apply && make verify
-docker compose up -d --build icecast
-```
-
-**4.** Clean up after yourself — optional, but keeps things from piling up:
-
-```bash
-rm -rf docker/liquidsoap/rootfs/home/radio/liquidsoap/night
-rm -rf /var/www/html/omfm/hls/night     # on the server
-```
-
-The station disappears from `/listeners` and `/np` immediately, and its ports
-are freed for the next one.
+After editing — `./omfm apply && ./omfm verify`, then as above.
 
 ### How the Liquidsoap scripts are laid out
 
@@ -275,22 +273,36 @@ process inside a shared container under supervisord. What that buys:
 - each station's state is visible in `docker compose ps` and `docker logs`
 
 ```bash
-make station-deploy  STATION=cdp   # rebuild and bring up cdp only
-make station-restart STATION=cdp
-make station-logs    STATION=cdp
-make station-status                # state and healthcheck of every station
+./omfm station deploy cdp     # rebuild and bring up cdp only
+./omfm station restart cdp
+./omfm station logs cdp
+./omfm station status         # state and healthcheck of every station
 ```
 
 ## Commands
 
+Everything runs through [omfm](omfm) in the repository root. It can be called
+from any directory — the script changes into the root itself.
+
 ```bash
-make apply      # generate configs from stations.toml
-make check      # confirm nothing has drifted
-make verify     # check + liquidsoap --check + compose and source validation
-make secrets    # rebuild the docker secrets (*.txt) from .env
-make up         # docker compose up -d --build (runs check first)
-make down
-make logs
+./omfm apply      # generate configs from stations.toml
+./omfm check      # confirm nothing has drifted
+./omfm liq-check  # syntax of every .liq through liquidsoap --check
+./omfm verify     # check + liq-check + compose and source validation
+./omfm secrets    # rebuild the docker secrets (*.txt) from .env
+./omfm up         # docker compose up -d --build (runs check first)
+./omfm down
+./omfm logs
+
+./omfm station new | rm <name> | deploy <name> | restart <name> | logs <name> | status
+./omfm relay   new | rm <name>
+```
+
+`./omfm help` prints the same list. Tab-completion for commands and station
+names:
+
+```bash
+source tools/omfm-completion.bash
 ```
 
 ## Secrets
@@ -303,7 +315,8 @@ Also outside git: `docker/centrifugo/config.toml` (with a `.example` next to
 it), `docker/listeners_monitor/*.txt`, and the Icecast TLS certificate
 `docker/icecast/config/concat-om.pem` — which contains the private key.
 The `*.txt` files are not edited by hand: they are rebuilt from `.env` by
-`make secrets`.
+`./omfm secrets`. If something is missing it does not write an empty file —
+it names the missing variables and explains what they affect.
 
 First-time setup:
 
@@ -313,7 +326,7 @@ cp docker/centrifugo/config.toml.example docker/centrifugo/config.toml
 # copy the certificate separately, it is not in the repository:
 #   scp concat-om.pem server:.../docker/icecast/config/
 chmod 600 docker/icecast/config/concat-om.pem
-make secrets && make apply && make up
+./omfm secrets && ./omfm apply && ./omfm up
 ```
 
 Without `concat-om.pem` the Icecast build fails at `COPY` — that is expected.

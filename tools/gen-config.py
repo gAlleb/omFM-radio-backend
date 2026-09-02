@@ -23,7 +23,7 @@ OUT_JSON = ROOT / "docker/generated/stations.json"
 ICECAST = ROOT / "docker/icecast/config/icecast.xml"
 COMPOSE = ROOT / "docker-compose.yaml"
 
-BEGIN = "GENERATED from stations.toml — не править вручную, см. make apply"
+BEGIN = "GENERATED from stations.toml — не править вручную, см. ./omfm apply"
 END = "GENERATED end"
 
 
@@ -51,7 +51,7 @@ def load():
         if field not in paths:
             die(f"[paths]: не задано поле {field}")
 
-    seen_mounts, seen_ports = {}, {}
+    seen_mounts, seen_ports, seen_shortcodes = {}, {}, {}
 
     for key, st in stations.items():
         where = f"[stations.{key}]"
@@ -75,6 +75,16 @@ def load():
         if mount in seen_mounts:
             die(f"{where}: mount {mount} уже занят станцией {seen_mounts[mount]}")
         seen_mounts[mount] = key
+
+        # shortcode — имя канала Centrifugo. У двух станций с одинаковым
+        # shortcode now-playing поедет в один канал и будет затирать друг
+        # друга: во фронтенде это выглядит как случайно скачущий трек.
+        shortcode = st.get("shortcode")
+        if shortcode is not None:
+            if shortcode in seen_shortcodes:
+                die(f"{where}: shortcode {shortcode} уже занят станцией "
+                    f"{seen_shortcodes[shortcode]} — это один канал Centrifugo на двоих")
+            seen_shortcodes[shortcode] = key
 
         for field in ("harbor_port", "telnet_port"):
             port = st.get(field)
@@ -283,7 +293,7 @@ def main():
             print("gen-config: конфиги разъехались с stations.toml:", file=sys.stderr)
             for p in stale:
                 print(f"  {p}", file=sys.stderr)
-            print("gen-config: выполни  make apply", file=sys.stderr)
+            print("gen-config: выполни  ./omfm apply", file=sys.stderr)
             return 1
         print(f"gen-config: всё актуально ({len(local)} своих, {len(relay)} релеев)")
         return 0

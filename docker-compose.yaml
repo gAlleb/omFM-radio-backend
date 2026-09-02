@@ -95,7 +95,7 @@ services:
         max-file: "3"
 
 
-  # GENERATED from stations.toml — не править вручную, см. make apply
+  # GENERATED from stations.toml — не править вручную, см. ./omfm apply
   liquidsoap-omfm:
     <<: *liquidsoap
     container_name: liquidsoap-omfm
