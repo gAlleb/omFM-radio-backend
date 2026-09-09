@@ -71,5 +71,13 @@
       "mount": "/totalrock",
       "monitor": false
     }
+  },
+  "peers": {
+    "r386": {
+      "url": "https://r.386.su/api/listeners",
+      "stations": {
+        "r386": "386"
+      }
+    }
   }
 }

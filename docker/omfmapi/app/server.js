@@ -40,7 +40,15 @@ const STATIONS_FILE = process.env.STATIONS_FILE || './stations.json';
 // Реестр станций читается из сгенерированного stations.json —
 // единственный источник правды это stations.toml в корне проекта.
 // Порядок ключей значим: он задаёт порядок полей в ответе /listeners.
-const STATIONS = JSON.parse(fs.readFileSync(STATIONS_FILE, 'utf8')).stations;
+const REGISTRY = JSON.parse(fs.readFileSync(STATIONS_FILE, 'utf8'));
+const STATIONS = REGISTRY.stations;
+
+// Пиры — чужое радио на том же стеке. Их поток мы не вещаем и не
+// ретранслируем, забираем только слушателей, чтобы они попадали в общую
+// статистику. Ключи, под которыми они у нас появляются, gen-config.py
+// уже проверил на совпадение с ключами своих станций.
+const PEERS = REGISTRY.peers || {};
+const PEER_KEYS = Object.values(PEERS).flatMap((peer) => Object.values(peer.stations));
 
 // Только станции, участвующие в статистике слушателей.
 const STATION_KEYS = Object.keys(STATIONS).filter((key) => STATIONS[key].monitor !== false);
@@ -113,6 +121,57 @@ async function fetchListenerData() {
 fetchListenerData();
 setInterval(fetchListenerData, 30000);
 
+// Пир опрашивается по HTTP: он отдаёт /api/listeners ровно в том же
+// формате, что и мы, — total_listeners плюс список записей на станцию.
+const PEER_POLL_MS = 30000;
+// Три пропущенных опроса подряд — считаем, что связи нет. Замёрзшие
+// числа хуже отсутствующих: по ним не видно, что пир недоступен.
+const PEER_TTL_MS = PEER_POLL_MS * 3;
+
+// наш ключ станции -> { listeners: [...], at: время последнего успешного ответа }
+const peerListeners = {};
+
+async function fetchPeerListeners() {
+  const peers = Object.entries(PEERS);
+  if (peers.length === 0) {
+    return;
+  }
+
+  const results = await Promise.allSettled(
+    peers.map(([, peer]) => axios.get(peer.url, { timeout: 10000 }))
+  );
+
+  results.forEach((result, index) => {
+    const [name, peer] = peers[index];
+
+    if (result.status !== 'fulfilled') {
+      console.error(`Ошибка получения слушателей пира ${name}:`, result.reason.message);
+      return;
+    }
+
+    const data = result.value.data;
+    const now = Date.now();
+
+    for (const [their, ours] of Object.entries(peer.stations)) {
+      const listeners = data[their];
+      if (!Array.isArray(listeners)) {
+        console.error(`Пир ${name}: в ответе нет списка станции ${their}`);
+        continue;
+      }
+
+      // Записи берём целиком. Своё поле source не затираем — у пира это
+      // тот же HLS-монитор, — а происхождение помечаем отдельно.
+      peerListeners[ours] = {
+        at: now,
+        listeners: listeners.map((listener) => ({ ...listener, peer: name, stream: ours })),
+      };
+    }
+  });
+}
+
+fetchPeerListeners();
+setInterval(fetchPeerListeners, PEER_POLL_MS);
+
 // Сводка по всем станциям: списки слушателей из обоих источников + счётчики.
 function buildListenersPayload() {
   const combined = {};
@@ -121,6 +180,19 @@ function buildListenersPayload() {
   for (const key of STATION_KEYS) {
     combined[key] = [...hlsListeners[key], ...apiListeners[key]];
     totalListeners[key] = combined[key].length;
+  }
+
+  // Свои станции заполняются первыми, пиры добавляются следом. На порядок
+  // полей в ответе при этом полагаться нельзя: числовой ключ вроде "386"
+  // JS всё равно поднимет в начало объекта.
+  const stale = Date.now() - PEER_TTL_MS;
+  for (const key of PEER_KEYS) {
+    const entry = peerListeners[key];
+    if (!entry || entry.at < stale) {
+      continue;
+    }
+    combined[key] = entry.listeners;
+    totalListeners[key] = entry.listeners.length;
   }
 
   return { total_listeners: totalListeners, ...combined };

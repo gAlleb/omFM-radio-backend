@@ -139,8 +139,11 @@ docker-секретов.
 
 ```bash
 # 1. источники и расписание в index.liq — их не сгенерировать
-# 2. каталог HLS-сегментов НА СЕРВЕРЕ, его монтирует compose:
+# 2. каталог HLS-сегментов НА СЕРВЕРЕ, его монтирует compose.
+#    Liquidsoap пишет туда под пользователем radio (uid из USER_UID, по
+#    умолчанию 1000) — root-овский каталог он читать сможет, а писать нет:
 mkdir -p /var/www/html/omfm/hls/night
+chown 1000:1000 /var/www/html/omfm/hls/night
 # 3. поднять станцию, не трогая эфир остальных:
 ./omfm verify && ./omfm station deploy night && ./omfm station status
 # 4. пересобрать Icecast, чтобы появился mount:
@@ -318,11 +321,30 @@ cp .env.example .env                              # заполнить знач�
 cp docker/centrifugo/config.toml.example docker/centrifugo/config.toml
 # сертификат скопировать отдельно, в репозитории его нет:
 #   scp concat-om.pem сервер:.../docker/icecast/config/
-chmod 600 docker/icecast/config/concat-om.pem
+# icecast в контейнере работает не под root, а приватный ключ нельзя
+# оставлять читаемым для всех — поэтому владелец, а не только режим:
+chown 1000:1000 docker/icecast/config/concat-om.pem   # uid: docker compose exec icecast id -u
+chmod 400 docker/icecast/config/concat-om.pem
 ./omfm secrets && ./omfm apply && ./omfm up
 ```
 
 Без `concat-om.pem` сборка Icecast упадёт на `COPY` — это ожидаемо.
+
+Сертификат обновляет certbot, и его `post_hook` выполняется от root: файл
+пересоздаётся как `root:root`, права слетают, а Icecast молча остаётся без
+TLS — он не падает, просто пишет `Invalid cert file` и продолжает отдавать
+только 8000. Поэтому `chown` и перезапуск должны быть в самом хуке:
+
+```
+post_hook = cat /etc/letsencrypt/live/omfm.ru/fullchain.pem \
+                /etc/letsencrypt/live/omfm.ru/privkey.pem \
+              > .../docker/icecast/config/concat-om.pem \
+            && chown 1000:1000 .../concat-om.pem \
+            && chmod 400 .../concat-om.pem \
+            && docker restart icecast
+```
+
+Перезапуск обязателен: сертификат читается только при старте.
 
 Icecast не стартует, если обязательные переменные не заданы — это
 намеренно, чтобы не подняться с плейсхолдером вместо пароля.

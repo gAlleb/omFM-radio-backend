@@ -140,8 +140,11 @@ What is left by hand is what it prints at the end:
 
 ```bash
 # 1. sources and schedule in index.liq — those cannot be generated
-# 2. the HLS segment directory ON THE SERVER, mounted by compose:
+# 2. the HLS segment directory ON THE SERVER, mounted by compose.
+#    Liquidsoap writes there as the radio user (uid from USER_UID, 1000 by
+#    default) — it can read a root-owned directory, but not write to it:
 mkdir -p /var/www/html/omfm/hls/night
+chown 1000:1000 /var/www/html/omfm/hls/night
 # 3. bring the station up without touching the others:
 ./omfm verify && ./omfm station deploy night && ./omfm station status
 # 4. rebuild Icecast so the mount appears:
@@ -325,11 +328,31 @@ cp .env.example .env                              # fill in the values
 cp docker/centrifugo/config.toml.example docker/centrifugo/config.toml
 # copy the certificate separately, it is not in the repository:
 #   scp concat-om.pem server:.../docker/icecast/config/
-chmod 600 docker/icecast/config/concat-om.pem
+# icecast does not run as root inside the container, and a private key must
+# not be world-readable — so set the owner, not just the mode:
+chown 1000:1000 docker/icecast/config/concat-om.pem   # uid: docker compose exec icecast id -u
+chmod 400 docker/icecast/config/concat-om.pem
 ./omfm secrets && ./omfm apply && ./omfm up
 ```
 
 Without `concat-om.pem` the Icecast build fails at `COPY` — that is expected.
+
+The certificate is renewed by certbot, whose `post_hook` runs as root: the file
+is recreated as `root:root`, the ownership is lost, and Icecast silently ends up
+without TLS — it does not crash, it just logs `Invalid cert file` and keeps
+serving port 8000 only. So the `chown` and the restart belong in the hook
+itself:
+
+```
+post_hook = cat /etc/letsencrypt/live/omfm.ru/fullchain.pem \
+                /etc/letsencrypt/live/omfm.ru/privkey.pem \
+              > .../docker/icecast/config/concat-om.pem \
+            && chown 1000:1000 .../concat-om.pem \
+            && chmod 400 .../concat-om.pem \
+            && docker restart icecast
+```
+
+The restart is required: the certificate is only read at startup.
 
 Icecast refuses to start if the required variables are unset — deliberately, so
 that it never comes up with a placeholder in place of a password.

@@ -96,7 +96,40 @@ def load():
 
     check_icecast_limits(stations)
 
-    return stations, paths
+    peers = load_peers(data, seen_mounts.values())
+
+    return stations, paths, peers
+
+
+def load_peers(data, station_keys):
+    """[peers.*] — чужое радио на том же стеке: забираем только слушателей.
+
+    Пиры намеренно не участвуют в генерации icecast.xml и compose: мы их
+    не вещаем и не ретранслируем, так что ни source-соединения, ни mount
+    им не нужны."""
+    peers = data.get("peers") or {}
+    taken = set(station_keys)
+
+    for name, peer in peers.items():
+        where = f"[peers.{name}]"
+
+        for field in ("url", "stations"):
+            if field not in peer:
+                die(f"{where}: не задано поле {field}")
+
+        if not peer["stations"]:
+            die(f"{where}: stations пустой — непонятно, какие ключи забирать")
+
+        for their, ours in peer["stations"].items():
+            # Ключ пира попадёт в /listeners наравне со своими станциями.
+            # Совпадение с существующим ключом молча складывало бы чужих
+            # слушателей в нашу станцию.
+            if ours in taken:
+                die(f"{where}: ключ {ours!r} уже занят — "
+                    f"чужие слушатели попали бы в чужой список")
+            taken.add(ours)
+
+    return peers
 
 
 def check_icecast_limits(stations):
@@ -131,7 +164,7 @@ def die(message):
 # --------------------------------------------------------------------------
 
 
-def gen_stations_json(stations):
+def gen_stations_json(stations, peers):
     """Реестр для omfmapi (node) и listeners_monitor (python)."""
     out = {}
     for key, st in stations.items():
@@ -143,7 +176,16 @@ def gen_stations_json(stations):
         if "azuracast_id" in st:
             entry["azuracastId"] = st["azuracast_id"]
         out[key] = entry
-    return json.dumps({"stations": out}, ensure_ascii=False, indent=2) + "\n"
+
+    peers_out = {
+        name: {"url": peer["url"], "stations": dict(peer["stations"])}
+        for name, peer in peers.items()
+    }
+
+    payload = {"stations": out}
+    if peers_out:
+        payload["peers"] = peers_out
+    return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
 
 def gen_icecast(stations):
@@ -263,12 +305,19 @@ def splice(path, body, comment):
     return f"{head}{begin}\n{body}\n{end}{tail}"
 
 
+def peer_note(peers):
+    if not peers:
+        return ""
+    keys = [ours for peer in peers.values() for ours in peer["stations"].values()]
+    return f", пиры: {', '.join(keys)}"
+
+
 def main():
     check_only = "--check" in sys.argv
-    stations, paths = load()
+    stations, paths, peers = load()
 
     targets = [
-        (OUT_JSON, gen_stations_json(stations), None),
+        (OUT_JSON, gen_stations_json(stations, peers), None),
         (ICECAST, gen_icecast(stations), ("<!--", "-->")),
         (COMPOSE, gen_compose_services(stations, paths), "#"),
     ]
@@ -295,7 +344,8 @@ def main():
                 print(f"  {p}", file=sys.stderr)
             print("gen-config: выполни  ./omfm apply", file=sys.stderr)
             return 1
-        print(f"gen-config: всё актуально ({len(local)} своих, {len(relay)} релеев)")
+        print(f"gen-config: всё актуально ({len(local)} своих, {len(relay)} релеев"
+              f"{peer_note(peers)})")
         return 0
 
     if stale:
@@ -305,7 +355,7 @@ def main():
     else:
         print("gen-config: изменений нет")
     print(f"gen-config: {len(local)} своих станций ({', '.join(local)}), "
-          f"{len(relay)} релеев")
+          f"{len(relay)} релеев{peer_note(peers)}")
     return 0
 
 
