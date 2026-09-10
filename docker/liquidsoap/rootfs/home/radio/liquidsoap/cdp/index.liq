@@ -7,18 +7,27 @@
 %include "../lib/settings.liq"
 %include "../lib/playlog.liq"
 
+# Обложки берём из самих файлов, а не из iTunes.
+covers_enable()
+
 # Следующий трек знаем только потому, что плейлист один: check_next
 # заранее резолвит кандидата. У omfm с его switch/rotate так нельзя.
 next_title = ref("")
 next_artist = ref("")
 next_playlist = ref("")
 next_album = ref("")
+next_filename = ref("")
 
 def remember_next(m)
   next_title := m["title"]
   next_artist := m["artist"]
   next_playlist := m["playlist"]
   next_album := m["album"]
+  next_filename := m["filename"]
+
+  # Обложку готовим здесь же: кандидат уже разрезолвлен, файл подтянут, и это
+  # происходит заранее — а не в момент сборки now-playing, где ждать нельзя.
+  cover_prepare(m)
 end
 
 check = make_check(on_accept=remember_next, 3600.)
@@ -32,6 +41,7 @@ omfm_0 = rotate(weights=[1,4], [jingles, cdp])
 
 %include "../lib/queues.liq"
 %include "../lib/nowplaying.liq"
+
 
 omfm_0 = with_queues(omfm_0)
 omfm_0 =
@@ -57,7 +67,8 @@ omfm_0 =
                     text = "#{next_title()} - #{next_artist()}",
                     title = next_title(),
                     artist = next_artist(),
-                    album = next_album()
+                    album = next_album(),
+                    art = cover_url(next_filename())
                   }
               }
           }

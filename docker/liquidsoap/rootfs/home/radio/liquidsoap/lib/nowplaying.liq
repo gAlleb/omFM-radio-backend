@@ -62,12 +62,15 @@ def song_fields(~default_title, m)
     artist := pre_artist
   end
 
+  lookup_cover = cover_of()
+
   {
     text = stream_title,
     artist = artist(),
     title = title(),
     album = null_list("album", m),
-    genre = null_list("genre", m)
+    genre = null_list("genre", m),
+    art = lookup_cover(null_list("filename", m))
   }
 end
 

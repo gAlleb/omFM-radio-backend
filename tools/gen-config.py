@@ -259,6 +259,7 @@ def gen_compose_services(stations, paths):
       TELNET_PORT: "{telnet}"
       HLS_PLAYLIST: {playlist}
       OMFMAPI_URL: "http://omfmapi:9999/np/{key}"
+      HLS_BASE_URL: ${{HLS_BASE_URL:-https://hls.omfm.ru}}
       ICECAST_SOURCE_PASSWORD: ${{ICECAST_SOURCE_PASSWORD:?}}
       OMFMAPI_USER: ${{OMFMAPI_USER:?}}
       OMFMAPI_PASSWORD: ${{OMFMAPI_PASSWORD:?}}

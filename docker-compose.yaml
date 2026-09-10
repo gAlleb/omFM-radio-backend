@@ -114,6 +114,7 @@ services:
       TELNET_PORT: "1234"
       HLS_PLAYLIST: "stream.m3u8"
       OMFMAPI_URL: "http://omfmapi:9999/np/omfm"
+      HLS_BASE_URL: ${HLS_BASE_URL:-https://hls.omfm.ru}
       ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?}
       OMFMAPI_USER: ${OMFMAPI_USER:?}
       OMFMAPI_PASSWORD: ${OMFMAPI_PASSWORD:?}
@@ -154,6 +155,7 @@ services:
       TELNET_PORT: "1235"
       HLS_PLAYLIST: "cdp.m3u8"
       OMFMAPI_URL: "http://omfmapi:9999/np/cdp"
+      HLS_BASE_URL: ${HLS_BASE_URL:-https://hls.omfm.ru}
       ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?}
       OMFMAPI_USER: ${OMFMAPI_USER:?}
       OMFMAPI_PASSWORD: ${OMFMAPI_PASSWORD:?}

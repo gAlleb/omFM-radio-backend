@@ -23,6 +23,15 @@ station_dir = "/home/radio/liquidsoap/#{station}"
 log_dir = "#{station_dir}/log"
 hls_dir = "#{station_dir}/hls"
 
+# Публичный адрес каталога с обложками. Хост задаётся один раз на всю
+# установку (HLS_BASE_URL в .env), станции про него знать не нужно.
+hls_base_url = environment.get("HLS_BASE_URL")
+hls_base_url = if hls_base_url == "" then "https://hls.omfm.ru" else hls_base_url end
+covers_base_url = "#{hls_base_url}/#{station}/covers"
+
+# Библиотека обложек доступна всем станциям, но молчит до covers_enable().
+%include "covers.liq"
+
 settings.log.stdout := true
 settings.clock.leak_warning := 5
 settings.server.telnet := true
