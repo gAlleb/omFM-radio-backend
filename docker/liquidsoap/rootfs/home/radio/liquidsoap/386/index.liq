@@ -32,7 +32,7 @@ emergency =
     id="Emergency",
     prefix='annotate:liq_cue_file="false",playlist="Emergency":',
     reload_mode="watch",
-    "#{local_dir}/emergency"
+    "#{local_dir}/emergency.m3u"
   )
 
 # --- ротация ----------------------------------------------------------------
@@ -46,11 +46,11 @@ emergency =
 hour = 3600.
 day_ = 86400.
 
-day = category(dir=playlists_dir, artist_window=3. * hour, track_window=3. * day_, title_window=hour, max_length=600., "Day", "Day")
-night = category(dir=playlists_dir, artist_window=3. * hour, track_window=3. * day_, title_window=0., max_length=600., "Night", "Night")
-classical = category(dir=playlists_dir, artist_window=3. * hour, track_window=3. * hour, title_window=3. * hour, "Classical", "Classical")
-romantic = category(dir=playlists_dir, artist_window=3. * hour, track_window=3. * hour, title_window=3. * hour, "Romantic", "Romantic")
-organ = category(dir=playlists_dir, artist_window=0., track_window=3. * hour, title_window=3. * hour, "Organ", "Organ")
+day = category(dir=playlists_dir, artist_window=3. * hour, track_window=3. * day_, title_window=hour, max_length=600., "Day", "Day.m3u")
+night = category(dir=playlists_dir, artist_window=3. * hour, track_window=3. * day_, title_window=0., max_length=600., "Night", "Night.m3u")
+classical = category(dir=playlists_dir, artist_window=3. * hour, track_window=3. * hour, title_window=3. * hour, "Classical", "Classical.m3u")
+romantic = category(dir=playlists_dir, artist_window=3. * hour, track_window=3. * hour, title_window=3. * hour, "Romantic", "Romantic.m3u")
+organ = category(dir=playlists_dir, artist_window=0., track_window=3. * hour, title_window=3. * hour, "Organ", "Organ.m3u")
 
 # --- расписание -------------------------------------------------------------
 #
@@ -154,6 +154,11 @@ radio = with_queues(radio)
 # очереди остался настоящий следующий.
 radio.on_metadata(synchronous=false, drop_aired)
 
+# Подстраховка для обложек: кандидат мог быть подготовлен задолго до своего
+# блока, и за это время окно чистки успело вытеснить его картинку. Если файл
+# на месте — вызов ничего не делает, ffmpeg не запускается.
+radio.on_metadata(synchronous=false, cover_prepare)
+
 radio =
   with_nowplaying(
     extend=
@@ -189,6 +194,16 @@ radio =
         end,
     radio
   )
+def add_decibel(m) =
+  if string.length(m["liq_amplify"]) > 0 then
+     liq_amplify = metadata.parse.amplify(m["liq_amplify"]) + 2.
+     [("liq_amplify", "#{liq_amplify} dB")]
+  else
+     m
+  end
+end
+
+radio = metadata.map(update=true, add_decibel, radio)
 radio = amplify(1., override="liq_amplify", radio)
 
 %include "../lib/crossfade.liq"

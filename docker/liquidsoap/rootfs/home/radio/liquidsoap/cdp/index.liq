@@ -44,6 +44,10 @@ omfm_0 = rotate(weights=[1,4], [jingles, cdp])
 
 
 omfm_0 = with_queues(omfm_0)
+
+# Подстраховка для обложек: если картинку вытеснило окно чистки, она
+# пересоздастся при выходе трека в эфир. Файл на месте — вызов пустой.
+omfm_0.on_metadata(synchronous=false, cover_prepare)
 omfm_0 =
   with_nowplaying(
     extend=

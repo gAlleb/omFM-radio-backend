@@ -27,14 +27,30 @@
 covers_dir = "#{hls_dir}/covers"
 covers_keep = 50           # столько файлов держим, остальные удаляем
 covers_max_side = 500      # пикселей по большей стороне
-covers_cache_keep = 200    # столько записей помним в карте filename -> url
 
 # Крючок для song_fields. По умолчанию пусто: библиотека подключена всем
 # станциям, но молчит, пока станция не позовёт covers_enable().
 cover_of = ref(fun (_) -> "")
 
-cover_cache = ref([])
 covers_ready = ref(false)
+
+# Треки, в которых картинки не оказалось. Кешируется ТОЛЬКО отрицательный
+# ответ: адрес обложки по-прежнему проверяется по диску, поэтому указать на
+# удалённый файл он не может. Без этого списка трек без картинки гонял бы
+# ffmpeg вхолостую дважды за эфир — при принятии кандидата и при выходе в
+# эфир, — а по сетевому диску это два чтения файла ради ничего.
+#
+# Ключ вместе со временем файла: перетегировали трек — попробуем снова.
+artless = ref([])
+artless_keep = 500
+
+# Имя выводится из пути трека, поэтому и путь, и адрес считаются на месте.
+# Кеша ссылок намеренно нет: он мог пережить чистку каталога и отдать адрес
+# уже удалённого файла — как раз в случае, когда категория подготовила трек
+# задолго до своего блока, а за это время окно успело провернуться.
+def cover_name(filename) =
+  "#{string.digest(filename)}.jpg"
+end
 
 # Пока станция не позвала covers_enable(), библиотека молчит целиком: и крючок
 # пуст, и cover_prepare ничего не делает. Поэтому ротация может звать его
@@ -55,8 +71,6 @@ def covers_mkdir() =
 end
 
 # Первые n элементов. list.drop в 2.4 нет, а порядок удаления неважен.
-# Функций две, потому что вывод типов делает их мономорфными: одна работает
-# по списку путей, другая — по карте filename -> url.
 def rec covers_take(n, l) =
   if n <= 0 or l == [] then
     []
@@ -65,12 +79,17 @@ def rec covers_take(n, l) =
   end
 end
 
-def rec cache_take(n, l) =
-  if n <= 0 or l == [] then
-    []
-  else
-    list.add(list.hd(default=("", ""), l), cache_take(n - 1, list.tl(l)))
-  end
+def artless_key(filename) =
+  "#{filename}|#{file.mtime(filename)}"
+end
+
+def artless_known(filename) =
+  list.mem(artless_key(filename), artless())
+end
+
+def artless_add(filename) =
+  l = list.add(artless_key(filename), artless())
+  artless := if list.length(l) > artless_keep then covers_take(artless_keep, l) else l end
 end
 
 # Чистим по времени файла: имя производное от трека и о возрасте не говорит.
@@ -95,7 +114,7 @@ end
 
 def cover_make(filename) =
   covers_mkdir()
-  name = "#{string.digest(filename)}.jpg"
+  name = cover_name(filename)
   path = "#{covers_dir}/#{name}"
   url = "#{covers_base_url}/#{name}"
 
@@ -118,41 +137,37 @@ def cover_make(filename) =
       # чтобы не засорять: на фонотеке без обложек иначе будет строка на трек.
       log(level=4, "covers: обложки нет или ffmpeg не справился: #{filename}")
       if file.exists(path) then file.remove(path) end
+      artless_add(filename)
       ""
     end
   end
 end
 
-def cover_remember(filename) =
-  if filename != "" and not list.assoc.mem(filename, cover_cache()) then
-    found =
-      try
-        cover_make(filename)
-      catch err do
-        log.severe("covers: #{filename}: #{err.message}")
-        ""
-      end
-
-    cache = list.add((filename, found), cover_cache())
-    cover_cache :=
-      if list.length(cache) > covers_cache_keep then
-        cache_take(covers_cache_keep, cache)
-      else
-        cache
-      end
+# Готовит обложку принятого кандидата. Зовётся из ротации на каждом принятом
+# треке; без covers_enable() — пустая операция. Если файл был вычищен, здесь же
+# он и пересоздастся: cover_fresh вернёт false.
+def cover_prepare(m) =
+  filename = m["filename"]
+  if covers_on() and filename != "" and not artless_known(filename) then
+    try
+      ignore(cover_make(filename))
+    catch err do
+      log.severe("covers: #{filename}: #{err.message}")
+    end
   end
 end
 
-# Готовит обложку принятого кандидата. Зовётся из ротации на каждом принятом
-# треке; без covers_enable() — пустая операция.
-def cover_prepare(m) =
-  if covers_on() then cover_remember(m["filename"]) end
-end
-
-# Только чтение кеша: вызывается на каждой сборке now-playing, поэтому здесь
-# не должно быть ни ввода-вывода, ни запуска процессов.
+# Адрес обложки трека. Зовётся на каждой сборке now-playing, поэтому здесь
+# только stat по локальному диску — ни ffmpeg, ни чтения фонотеки.
+# Файла нет (не было картинки или его вычистило) — пустая строка, и фронтенд
+# покажет заглушку.
 def cover_url(filename) =
-  list.assoc(default="", filename, cover_cache())
+  if filename == "" then
+    ""
+  else
+    name = cover_name(filename)
+    if file.exists("#{covers_dir}/#{name}") then "#{covers_base_url}/#{name}" else "" end
+  end
 end
 
 # Включить обложки для станции. Одна строка в index.liq — и art появляется
