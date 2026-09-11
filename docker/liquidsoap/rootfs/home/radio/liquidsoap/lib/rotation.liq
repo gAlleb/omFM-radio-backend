@@ -59,6 +59,53 @@ titles = playlog(persistency="#{log_dir}/repeat_titles.log", duration=retention,
 %include "reservations.liq"
 
 
+# Кандидат уже занят другим источником?
+#
+# Журнал отвечает на вопрос «что звучало», а занятые кандидаты — на вопрос
+# «что вот-вот зазвучит». Без второй половины два трека одного артиста могут
+# оказаться в очередях одновременно: журнал про них ещё молчит.
+#
+# Окна здесь не нужны — отложенный кандидат выйдет в эфир в ближайшие минуты.
+# Но выключенное правило (окно 0) остаётся выключенным и тут, иначе у organ
+# внезапно появилась бы защита по артисту, которой у него нет по замыслу.
+def reserved_conflict(~artist_window, ~track_window, ~title_window, m) =
+  artist_key = hash_artist(m)
+  track_key = hash_track(m)
+  title_key = hash_title(m)
+
+  def clash(pm) =
+    (artist_window > 0. and artist_key != "" and hash_artist(pm) == artist_key)
+    or (track_window > 0. and hash_track(pm) == track_key)
+    or (title_window > 0. and title_key != "" and hash_title(pm) == title_key)
+  end
+
+  list.exists(fun (entry) -> list.exists(clash, snd(entry)), pending())
+end
+
+# Трек вышел в эфир: отмечаем в журналах и снимаем с очереди.
+#
+# Порядок важен и держит защиту непрерывной. Пока обработчик не отработал,
+# трек ещё лежит в очереди и его артиста закрывает reserved_conflict; после
+# — его закрывает журнал. Промежутка, когда не действует ни то, ни другое,
+# не возникает, поэтому обработчик можно оставить асинхронным и не рисковать
+# задержкой в потоковом потоке.
+#
+# Пустой playlist означает, что трек пришёл не из категории (джингл, очередь,
+# emergency). Такие в журнал повторов не попадают — они и раньше не попадали.
+def note_aired(m) =
+  if m["playlist"] != "" then
+    try
+      if hash_artist(m) != "" then artists.add(m) end
+      tracks.add(m)
+      if hash_title(m) != "" then titles.add(m) end
+    catch err do
+      log.severe("386: не смог отметить сыгранное (#{err.message}), играю без правил")
+    end
+  end
+  drop_aired(m)
+end
+
+
 # Отсев не-аудио до резолва: в папке с музыкой легко оказывается обложка,
 # .txt или недокачанный файл. Проверено запуском: отказ в check_next не
 # считается неудачей резолва, поэтому такой мусор не приближает max_fail
@@ -102,6 +149,13 @@ def make_check(~artist_window, ~track_window, ~title_window, ~max_length=0., ~gi
         (artist_window <= 0. or artist_key == "" or artists.last(m) >= artist_window)
         and (track_window <= 0. or tracks.last(m) >= track_window)
         and (title_window <= 0. or title_key == "" or titles.last(m) >= title_window)
+        and
+          not reserved_conflict(
+            artist_window=artist_window,
+            track_window=track_window,
+            title_window=title_window,
+            m
+          )
 
       if too_long then
         # Длинный трек не пропускаем никогда: это не про повторы.
@@ -111,9 +165,10 @@ def make_check(~artist_window, ~track_window, ~title_window, ~max_length=0., ~gi
         if not fresh then
           log.important("386: правила никого не пропустили, ставлю #{m['artist']} — #{m['title']}")
         end
-        if artist_key != "" then artists.add(m) end
-        tracks.add(m)
-        if title_key != "" then titles.add(m) end
+        # В журнал не пишем: отметка ставится в note_aired, когда трек
+        # действительно зазвучал. Здесь достаточно занять очередь —
+        # reserved_conflict не пустит второго того же артиста, пока этот
+        # ждёт эфира.
         remember_next(name, m)
         cover_prepare(m)
         rejected := 0

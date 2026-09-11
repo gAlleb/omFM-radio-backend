@@ -14,7 +14,26 @@ def remembering(name, m) =
   cover_prepare(m)
 end
 
-check = make_check(on_accept=fun (m) -> remembering("omFM Main Playlist", m), 6000.)
+MAIN = "omFM Main Playlist"
+
+# Кандидат уже стоит в очереди основного плейлиста?
+#
+# Журнал теперь заполняется по эфиру, поэтому про отложенных кандидатов он
+# молчит — их закрывает эта проверка. Смотрим только свою очередь: у мантры,
+# сутр и аудиокниг списки короткие, и отказ по ним увёл бы плейлист в перебор.
+def main_reserved(m) =
+  key = my_hash(m)
+  key != "" and list.exists(fun (pm) -> my_hash(pm) == key, queue_of(MAIN))
+end
+
+check =
+  make_check(
+    on_accept=fun (m) -> remembering(MAIN, m),
+    defer_log=true,
+    reserved=main_reserved,
+    give_up=50,
+    6000.
+  )
 
 # Для остальных источников проверка ТОЛЬКО запоминает кандидата и никогда не
 # отклоняет. Отклонять там нельзя: у мантры один файл, у сутр и аудиокниг
@@ -197,7 +216,18 @@ omfm_0.on_metadata(synchronous=false, cover_prepare)
 
 # Трек вышел в эфир — снимаем его с очереди своего источника, иначе головой
 # очереди остался бы он сам, а не следующий.
-omfm_0.on_metadata(synchronous=false, drop_aired)
+# Трек вышел в эфир — отмечаем в журнале повторов и снимаем с очереди.
+#
+# Оба действия делает один обработчик и именно в таком порядке: пока он не
+# отработал, трек ещё лежит в очереди и его артиста закрывает main_reserved,
+# а после — закрывает журнал. Промежутка без защиты не возникает, поэтому
+# обработчик можно оставить асинхронным.
+def aired(m) =
+  note_aired(only_playlist=MAIN, m)
+  drop_aired(m)
+end
+
+omfm_0.on_metadata(synchronous=false, aired)
 
 # И закрываем окно вставки, если отзвучала она.
 omfm_0.on_metadata(synchronous=false, mark_insert)
