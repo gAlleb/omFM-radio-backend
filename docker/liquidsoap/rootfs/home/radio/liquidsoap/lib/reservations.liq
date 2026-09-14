@@ -26,7 +26,9 @@ def remember_next(name, m)
   set_queue(name, list.append(queue_of(name), [m]))
 end
 
-# Хвост очереди после трека, который только что отзвучал.
+# Хвост очереди после трека, который только что отзвучал. Вызывается только
+# когда трек действительно найден: сам по себе этот обход не отличает
+# «трека нет» от «нужно выбросить всю очередь».
 def rec after_aired(q, aired) =
   if q == [] then
     []
@@ -39,10 +41,21 @@ def rec after_aired(q, aired) =
 end
 
 # Трек вышел в эфир — выбрасываем его и всё, что стояло перед ним.
+#
+# Событие метаданных может прийти повторно. В частности, fallback.skip после
+# джингла сначала переигрывает метаданные прерванного трека, которого в
+# резервации уже нет. Такая запись не должна очищать настоящих следующих
+# кандидатов. Неизвестные очереди (джинглы, emergency) тоже не создаём.
 def drop_aired(m) =
   name = m["playlist"]
-  if name != "" then
-    set_queue(name, after_aired(queue_of(name), m["filename"]))
+  if name != "" and list.assoc.mem(name, pending()) then
+    q = queue_of(name)
+    aired = m["filename"]
+    if list.exists(fun (candidate) -> candidate["filename"] == aired, q) then
+      set_queue(name, after_aired(q, aired))
+    else
+      log(level=4, "reservations: повторные метаданные #{name}: #{aired}, очередь сохраняю")
+    end
   end
 end
 

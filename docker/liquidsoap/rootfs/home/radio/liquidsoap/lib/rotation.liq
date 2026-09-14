@@ -130,6 +130,15 @@ end
 def make_check(~artist_window, ~track_window, ~title_window, ~max_length=0., ~give_up=80, name)
   rejected = ref(0)
 
+  # Любой принятый запрос обязан пройти одни и те же побочные действия.
+  # Иначе плейлист сыграет трек, которого нет в очереди playing_next.
+  def accept_candidate(m) =
+    remember_next(name, m)
+    cover_prepare(m)
+    rejected := 0
+    true
+  end
+
   def decide(r) =
     if not is_audio(r) then
       # Не аудио: даже не резолвим.
@@ -169,10 +178,7 @@ def make_check(~artist_window, ~track_window, ~title_window, ~max_length=0., ~gi
         # действительно зазвучал. Здесь достаточно занять очередь —
         # reserved_conflict не пустит второго того же артиста, пока этот
         # ждёт эфира.
-        remember_next(name, m)
-        cover_prepare(m)
-        rejected := 0
-        true
+        accept_candidate(m)
       else
         rejected := rejected() + 1
         false
@@ -190,7 +196,7 @@ def make_check(~artist_window, ~track_window, ~title_window, ~max_length=0., ~gi
       decide(r)
     catch err do
       log.severe("386: журнал повторов недоступен (#{err.message}), играю без правил")
-      request.resolve(r)
+      if request.resolve(r) then accept_candidate(request.metadata(r)) else false end
     end
   end
 
