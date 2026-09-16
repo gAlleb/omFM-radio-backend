@@ -138,7 +138,27 @@ end
 thread.when(predicate.activates({ 5h59m26s }), cue_6am)
 thread.when(predicate.activates({ 0h0m0s }), cue_newyear)
 
-radio = fallback.skip(cue_queue, fallback=radio)
+# Тот же fallback.skip, что в стандартной библиотеке, с одним отличием:
+# replay_metadata=false. Внутри него обычный fallback, то есть switch, а тот
+# по умолчанию переигрывает последние метаданные источника, когда возвращается
+# к нему посреди потока. Из-за этого прерванный трек после врезки второй раз
+# попадал в историю. Наружу параметр не выведен, передать его в fallback.skip
+# нельзя — отсюда своя копия.
+def skip_fallback(s, ~fallback:f) =
+  avail = ref(true)
+
+  def check() =
+    old = avail()
+    avail := source.is_ready(s)
+    if not old and avail() then source.skip(f) end
+  end
+
+  s = fallback(track_sensitive=false, replay_metadata=false, [s, f])
+  s.on_frame(synchronous=true, check)
+  s
+end
+
+radio = skip_fallback(cue_queue, fallback=radio)
 
 # --- общая обвязка ----------------------------------------------------------
 
