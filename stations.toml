@@ -119,14 +119,14 @@ upstream     = "http://radio.omfm.ru:8070/ashes.aac"
 azuracast_id = 9
 monitor      = true
 
-[stations.noir]
-kind         = "relay"
-name         = "Noir"
-mount        = "/noir"
-fallback     = "/fallback-[192].aac"
-upstream     = "http://radio.omfm.ru:8090/noir.aac"
-azuracast_id = 10
-monitor      = true
+# [stations.noir]
+# kind         = "relay"
+# name         = "Noir"
+# mount        = "/noir"
+# fallback     = "/fallback-[192].aac"
+# upstream     = "http://radio.omfm.ru:8090/noir.aac"
+# azuracast_id = 10
+# monitor      = true
 
 # Внешний релей: не наш AzuraCast, слушателей по нему не собираем.
 [stations.totalrock]
@@ -155,4 +155,4 @@ monitor  = false
 
 [peers.r386]
 url      = "https://r.386.su/api/listeners"
-stations = { r386 = "386" }
+stations = { r386 = "386", noir = "noir" }
