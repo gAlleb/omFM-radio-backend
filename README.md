@@ -272,7 +272,10 @@ process inside a shared container under supervisord. What that buys:
 - **a healthcheck on the harbor port** catches not just a crash but a **hang**.
   Supervisord only restarted a process that had died; a wedged liquidsoap
   (live process, dead air) it left alone entirely.
-- a station can be rebuilt and restarted **without interrupting the others**
+- a station can be rebuilt and restarted **without interrupting the others** —
+  but only with `--no-deps`, or compose pulls in the whole chain
+  (`omfmapi` → `centrifugo` → `icecast`) and `--build` rebuilds all of it.
+  `./omfm station deploy` passes that flag itself
 - each station's state is visible in `docker compose ps` and `docker logs`
 
 ```bash
