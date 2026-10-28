@@ -25,13 +25,41 @@
 #
 # d — запись даты из time.local(): d.hour, d.week_day (1 — понедельник).
 
+# Почему категория считается отдельно, а не прямо в предикате.
+#
+# switch опрашивает предикаты ВСЕХ ветвей на каждый кадр и делает это внутри
+# одной глобальной atomic-секции (`switch.ml`, `snapshot_predicates`). Значит
+# семь категорий — это семь вызовов chooser на кадр, пятьдесят раз в секунду.
+#
+# В 2.4.5 это было дёшево. В 2.5 чтение `ref` само стало atomic-секцией
+# (`ref.liq` оборачивает get/set/exchange), а chooser у omfm читает
+# `inserts_done` до трёх раз за вызов — то есть до 21 глобального лока и семи
+# сисколлов времени на кадр. На стенде с настоящим конфигом omfm это давало
+# 57–63 % CPU против 6–9 % на 2.4.5 (28.10.2026), и ровно это сняло станцию с
+# эфира при выкатке.
+#
+# Поэтому chooser зовётся один раз на кадр, до опроса ветвей, а ветвям
+# остаётся сравнение с готовым значением. Частота сохраняется кадровая:
+# считать раз в секунду нельзя, у noir категория зависит от счётчика
+# сыгранных треков, и на стыке устаревшее значение дало бы не тот плейлист.
 def schedule(chooser, pairs) =
-  def branch(pair) =
-    let (name, src) = pair
-    ({ chooser(time.local()) == name }, src)
+  current = ref(chooser(time.local()))
+
+  def refresh() =
+    current := chooser(time.local())
   end
 
-  switch(id="schedule", list.map(branch, pairs))
+  def branch(pair) =
+    let (name, src) = pair
+    ({ current() == name }, src)
+  end
+
+  s = switch(id="schedule", list.map(branch, pairs))
+
+  # before=true: обработчик обязан отработать до того, как switch начнёт
+  # выбирать ветвь, иначе выбор пойдёт по значению предыдущего кадра.
+  ignore(s.on_frame(before=true, synchronous=true, refresh))
+  s
 end
 
 # Категория на момент, когда кончится текущий трек. Пустая строка — момент
