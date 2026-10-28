@@ -299,7 +299,15 @@ from any directory — the script changes into the root itself.
 
 ./omfm station new | rm <name> | deploy <name> | restart <name> | logs <name> | status
 ./omfm relay   new | rm <name>
+
+./omfm crashcheck            # did anything restart in the last day, did clocks catch up
+./omfm crashcheck 10m        # same over ten minutes
+./omfm crashcheck 2h --why   # plus the log right before each restart
 ```
+
+`crashcheck` answers whether the air ran clean and exits 0 when it did, so it
+suits cron and `watch`. What exactly it counts, and from which log lines, is
+written at the top of [tools/crashcheck.sh](tools/crashcheck.sh).
 
 `./omfm help` prints the same list. Tab-completion for commands and station
 names:

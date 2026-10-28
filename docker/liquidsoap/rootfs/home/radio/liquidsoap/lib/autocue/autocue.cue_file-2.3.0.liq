@@ -233,7 +233,7 @@ def meta_json_stringify(
   m
 ) =
   m = metadata.cover.remove(m)
-  data = json()
+  data = json.object()
   list.iter(fun (v) -> data.add(fst(v), snd(v)), m)
   json.stringify(json5=json5, compact=compact, data)
 end

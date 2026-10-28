@@ -294,7 +294,15 @@ lib/output.liq       выходы Icecast и HLS
 
 ./omfm station new | rm <имя> | deploy <имя> | restart <имя> | logs <имя> | status
 ./omfm relay   new | rm <имя>
+
+./omfm crashcheck            # падал ли кто-нибудь за сутки, догонял ли часы
+./omfm crashcheck 10m        # то же за десять минут
+./omfm crashcheck 2h --why   # и лог перед каждым перезапуском
 ```
+
+`crashcheck` отвечает на вопрос «эфир шёл ровно или нет» и возвращает 0, если
+ровно, — то есть годится для cron и для `watch`. Что именно он считает и по
+каким строкам лога, расписано в шапке [tools/crashcheck.sh](tools/crashcheck.sh).
 
 `./omfm help` печатает то же самое. Дополнение команд и имён станций по Tab:
 

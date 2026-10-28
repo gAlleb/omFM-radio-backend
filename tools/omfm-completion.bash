@@ -28,7 +28,7 @@ _omfm() {
 
     if (( COMP_CWORD == 1 )); then
         mapfile -t COMPREPLY < <(compgen -W \
-            "help apply check secrets liq-check verify up down logs station relay" -- "$cur")
+            "help apply check secrets liq-check verify up down logs crashcheck station relay" -- "$cur")
         return
     fi
 
@@ -37,6 +37,10 @@ _omfm() {
             station) mapfile -t COMPREPLY < <(compgen -W \
                         "deploy restart logs status new rm" -- "$cur") ;;
             relay)   mapfile -t COMPREPLY < <(compgen -W "new rm" -- "$cur") ;;
+            # Окна — подсказка, а не список: crashcheck принимает любую
+            # длительность, какую понимает docker logs --since.
+            crashcheck) mapfile -t COMPREPLY < <(compgen -W \
+                        "10m 30m 1h 2h 6h 24h 7d --station --why" -- "$cur") ;;
         esac
         return
     fi

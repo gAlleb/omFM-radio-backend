@@ -39,6 +39,11 @@ usage() {
     ./omfm station logs cdp
     ./omfm station status        состояние и healthcheck всех станций
 
+  Падал ли кто-нибудь, догонял ли часы — за любое окно:
+    ./omfm crashcheck            за сутки
+    ./omfm crashcheck 10m        за десять минут
+    ./omfm crashcheck 2h --why   и лог перед каждым перезапуском
+
   Реестр правится диалогом — порты, mount и остальное предлагаются сами:
     ./omfm station new           своя станция: блок, каталог, index.liq
     ./omfm relay new             ретрансляция чужого потока
@@ -289,6 +294,7 @@ case ${1:-help} in
     up)             cmd_up ;;
     down)           cmd_down ;;
     logs)           cmd_logs ;;
+    crashcheck)     shift; exec tools/crashcheck.sh "$@" ;;
     station)        shift; cmd_station "$@" ;;
     relay)          shift; cmd_relay "$@" ;;
     *)              die "неизвестная команда: $1 (см. ./omfm help)" ;;
