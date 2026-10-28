@@ -22,8 +22,12 @@ def set_queue(name, q) =
   pending := list.add((name, q), list.assoc.remove(name, pending()))
 end
 
+# С 2.5 резолвы запросов и обработчики метаданных идут параллельно на разных
+# ядрах, а здесь и там — чтение-изменение-запись одного и того же `pending`.
+# Без atomic это тихая потеря кандидата, а не ошибка, поэтому каждая такая
+# последовательность собрана в одну секцию.
 def remember_next(name, m)
-  set_queue(name, list.append(queue_of(name), [m]))
+  atomic({set_queue(name, list.append(queue_of(name), [m]))})
 end
 
 # Хвост очереди после трека, который только что отзвучал. Вызывается только
@@ -46,16 +50,28 @@ end
 # джингла сначала переигрывает метаданные прерванного трека, которого в
 # резервации уже нет. Такая запись не должна очищать настоящих следующих
 # кандидатов. Неизвестные очереди (джинглы, emergency) тоже не создаём.
+# Решение и правка очереди — одна секция atomic; строка в лог пишется уже после
+# неё, чтобы в секции не оказалось ввода-вывода.
 def drop_aired(m) =
   name = m["playlist"]
-  if name != "" and list.assoc.mem(name, pending()) then
-    q = queue_of(name)
-    aired = m["filename"]
-    if list.exists(fun (candidate) -> candidate["filename"] == aired, q) then
-      set_queue(name, after_aired(q, aired))
+  aired = m["filename"]
+
+  def decide() =
+    if name != "" and list.assoc.mem(name, pending()) then
+      q = queue_of(name)
+      if list.exists(fun (candidate) -> candidate["filename"] == aired, q) then
+        set_queue(name, after_aired(q, aired))
+        true
+      else
+        false
+      end
     else
-      log(level=4, "reservations: повторные метаданные #{name}: #{aired}, очередь сохраняю")
+      true
     end
+  end
+
+  if not atomic(decide) then
+    log(level=4, "reservations: повторные метаданные #{name}: #{aired}, очередь сохраняю")
   end
 end
 

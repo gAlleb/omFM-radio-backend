@@ -11,8 +11,8 @@
 
 
 #FROM savonet/liquidsoap-ci-build:main_alpine_amd64
-#FROM savonet/liquidsoap-alpine:rolling-release-v2.5.x
-FROM savonet/liquidsoap-alpine:v2.4.5
+FROM savonet/liquidsoap-alpine:rolling-release-v2.5.x
+#FROM savonet/liquidsoap-alpine:v2.4.5
 #FROM savonet/liquidsoap-alpine:8310ee9
 
 ARG USER_UID

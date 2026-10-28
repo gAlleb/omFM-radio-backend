@@ -11,7 +11,7 @@ set -euo pipefail
 
 cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 
-LIQ_IMAGE="${LIQ_IMAGE:-savonet/liquidsoap-alpine:v2.4.5}"
+LIQ_IMAGE="${LIQ_IMAGE:-savonet/liquidsoap-alpine:rolling-release-v2.5.x}"
 LIQ_ROOT="$PWD/docker/liquidsoap/rootfs/home/radio"
 STATIONS_JSON="docker/generated/stations.json"
 

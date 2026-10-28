@@ -140,11 +140,24 @@ def insert_pending(name, d) =
 end
 
 # Вставка отзвучала — окно закрыто до следующего раза.
+#
+# С 2.5 обработчики метаданных идут параллельно, поэтому проверка «окно ещё
+# открыто» и закрытие окна — одна секция atomic. Иначе два события подряд могли
+# бы оба увидеть окно открытым. Строка в лог — после секции.
 def mark_insert(m) =
   name = m["playlist"]
   key = insert_key(name, time.local())
-  if key != "" and not list.mem(key, inserts_done()) then
-    inserts_done := list.add(key, inserts_done())
+
+  def close() =
+    if key != "" and not list.mem(key, inserts_done()) then
+      inserts_done := list.add(key, inserts_done())
+      true
+    else
+      false
+    end
+  end
+
+  if atomic(close) then
     log.important("omfm: вставка #{name} отыграла, окно закрыто")
   end
 end
@@ -170,7 +183,8 @@ def category_at(d) =
 end
 
 # Основной эфир с джинглами: один джингл на три трека, как было.
-main = rotate(weights=[1, 3], [jinglesomfm, relax])
+# С 2.5 веса задаются методом на самом источнике, а не списком weights.
+main = rotate([jinglesomfm, relax.{weight = 3}])
 
 music =
   schedule(

@@ -246,13 +246,13 @@ def something_to_float(~true_value=1., value) =
     try
       float_of_string(value_string)
     catch _ do
-      null()
+      null
     end
   possible_bool =
     try
       bool_of_string(value_string) ? true_value : 0.
     catch _ do
-      null()
+      null
     end
   (possible_float ?? possible_bool) ?? 0.
 end
@@ -432,7 +432,7 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
       'Skipping cue_file for "#{filename}" because liq_cue_file=false \
        forbids it.'
     )
-    null()
+    null
   else
     log(
       level=3,
@@ -977,7 +977,7 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
         label=label,
         'No autocue data found for "#{filename}"'
       )
-      null()
+      null
     end
   end
 end

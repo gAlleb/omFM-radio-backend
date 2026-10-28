@@ -360,5 +360,5 @@ that it never comes up with a placeholder in place of a password.
 ## Notes
 
 - [docker/liquidsoap/MIGRATION-NOTES.md](docker/liquidsoap/MIGRATION-NOTES.md)
-  — what changed between Liquidsoap versions and the checklist for moving to
-  2.5. The current image is `v2.4.5`.
+  — what changed between Liquidsoap versions and how the stack was moved to
+  2.5. The current image is `rolling-release-v2.5.x`.

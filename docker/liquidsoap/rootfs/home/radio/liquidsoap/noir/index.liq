@@ -128,11 +128,18 @@ def on_air(m) =
   note_aired(only_playlist=MAIN, m)
 
   name = m["playlist"]
-  if name == MAIN then
-    main_in_row := main_in_row() + 1
-  elsif name == SECOND then
-    main_in_row := 0
+
+  # С 2.5 обработчики идут параллельно, а счётчик здесь читается и пишется —
+  # поэтому вся развилка целиком одна секция atomic.
+  def bump() =
+    if name == MAIN then
+      main_in_row := main_in_row() + 1
+    elsif name == SECOND then
+      main_in_row := 0
+    end
   end
+
+  atomic(bump)
 
   drop_aired(m)
 end

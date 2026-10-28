@@ -9,9 +9,18 @@ interrupting_queue = request.queue()
 # Аннотации типа обязательны: в списке Liquidsoap унифицирует типы
 # элементов, и без них параметр функции унаследовал бы методы очереди
 # (.push, .add), которых у обычного источника нет.
+#
+# С 2.5 track_sensitive — не параметр switch, а метод источника: switch врезается
+# в играющий трек, только если хотя бы у одного из двух участников он false.
+# Поэтому метка висит на самой очереди, а не на всём fallback.
 def with_queues(src)
   src = fallback([(default_queue : source(audio=pcm)), src])
-  fallback(track_sensitive=false, [(interrupting_queue : source(audio=pcm)), src])
+  fallback(
+    [
+      (interrupting_queue : source(audio=pcm)).{track_sensitive = false},
+      src
+    ]
+  )
 end
 
 def play(request)

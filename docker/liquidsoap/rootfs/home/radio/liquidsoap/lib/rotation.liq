@@ -168,7 +168,7 @@ def make_check(~artist_window, ~track_window, ~title_window, ~max_length=0., ~gi
 
       if too_long then
         # Длинный трек не пропускаем никогда: это не про повторы.
-        rejected := rejected() + 1
+        ref.incr(rejected)
         false
       elsif fresh or rejected() >= give_up then
         if not fresh then
@@ -180,7 +180,7 @@ def make_check(~artist_window, ~track_window, ~title_window, ~max_length=0., ~gi
         # ждёт эфира.
         accept_candidate(m)
       else
-        rejected := rejected() + 1
+        ref.incr(rejected)
         false
       end
     else

@@ -138,27 +138,18 @@ end
 thread.when(predicate.activates({ 5h59m26s }), cue_6am)
 thread.when(predicate.activates({ 0h0m0s }), cue_newyear)
 
-# Тот же fallback.skip, что в стандартной библиотеке, с одним отличием:
-# replay_metadata=false. Внутри него обычный fallback, то есть switch, а тот
-# по умолчанию переигрывает последние метаданные источника, когда возвращается
-# к нему посреди потока. Из-за этого прерванный трек после врезки второй раз
-# попадал в историю. Наружу параметр не выведен, передать его в fallback.skip
-# нельзя — отсюда своя копия.
-def skip_fallback(s, ~fallback:f) =
-  avail = ref(true)
-
-  def check() =
-    old = avail()
-    avail := source.is_ready(s)
-    if not old and avail() then source.skip(f) end
-  end
-
-  s = fallback(track_sensitive=false, replay_metadata=false, [s, f])
-  s.on_frame(synchronous=true, check)
-  s
-end
-
-radio = skip_fallback(cue_queue, fallback=radio)
+# Врезка перебивает играющий трек, и после неё категория отдаёт новый трек,
+# а не остаток прерванного.
+#
+# До 2.5 здесь лежала своя копия fallback.skip: сам оператор не выводил наружу
+# replay_metadata, а без него switch переигрывал метаданные прерванного трека
+# при возврате, и тот второй раз попадал в историю. В 2.5 оба свойства — методы
+# источника, а брошенный посреди трека файловый источник штатно получает
+# clear_last_metadata() и skip() в on_leave. Поэтому копия не нужна:
+#   * track_sensitive=false на radio разрешает switch врезаться в его трек;
+#   * replay_metadata=false оставлено явно — именно он держит историю чистой.
+radio =
+  fallback([cue_queue, radio.{track_sensitive = false, replay_metadata = false}])
 
 # --- общая обвязка ----------------------------------------------------------
 
@@ -239,9 +230,10 @@ radio = crossfaded(radio)
 # Аварийный подхват. Стоит до mksafe намеренно: mksafe — это тот же fallback,
 # только на тишину, и если поставить его первым, главный источник уже никогда
 # не будет «недоступен» — станция просто замолчит вместо переключения.
-# track_sensitive=false: перехватываем сразу, не дожидаясь конца трека, и так
-# же сразу возвращаемся в эфир, как только главный источник оживёт.
-radio = fallback(track_sensitive=false, [radio, emergency])
+# track_sensitive=false на аварийном источнике: как только главный оживёт,
+# возвращаемся в эфир сразу, не дожидаясь конца аварийного трека. С 2.5 это
+# метод источника, и достаточно пометить того, чей трек разрешено обрывать.
+radio = fallback([radio, emergency.{track_sensitive = false}])
 
 # Последний рубеж: если и аварийный каталог пуст, лучше тишина, чем падение.
 radio = mksafe(radio)

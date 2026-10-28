@@ -19,11 +19,18 @@ next_album = ref("")
 next_filename = ref("")
 
 def remember_next(m)
-  next_title := m["title"]
-  next_artist := m["artist"]
-  next_playlist := m["playlist"]
-  next_album := m["album"]
-  next_filename := m["filename"]
+  # Пять ячеек описывают один трек, и now-playing читает их вместе. С 2.5
+  # резолвы идут параллельно сборке np, поэтому пишем их одной секцией atomic —
+  # иначе наружу может уехать название одного трека с артистом другого.
+  def store() =
+    next_title := m["title"]
+    next_artist := m["artist"]
+    next_playlist := m["playlist"]
+    next_album := m["album"]
+    next_filename := m["filename"]
+  end
+
+  atomic(store)
 
   # Обложку готовим здесь же: кандидат уже разрезолвлен, файл подтянут, и это
   # происходит заранее — а не в момент сборки now-playing, где ждать нельзя.
@@ -36,7 +43,9 @@ check = make_check(on_accept=remember_next, 3600.)
 cdp = playlist(check_next=check,prefetch=1,prefix='annotate:liq_blankskip="false",playlist="Cafe De Paris":',id="Cafe De Paris", reload_mode="watch", "/home/radio/playlist/icecast-playlist-cdp.m3u")
 jingles = playlist(prefix='annotate:jingle_mode=true:', reload_mode="watch", "/home/radio/music/jingles/cdp")
 
-omfm_0 = rotate(weights=[1,4], [jingles, cdp]) 
+# С 2.5 вес задаётся методом на источнике, а не списком weights. Значение то же,
+# что и было: один джингл на четыре трека.
+omfm_0 = rotate([jingles, cdp.{weight = 4}])
 # --- общая обвязка ----------------------------------------------------------
 
 %include "../lib/queues.liq"

@@ -16,14 +16,14 @@ def null_list(key, _list)
 end
 
 def null_float(f)
-  f == infinity ? null() : f
+  f == infinity ? null : f
 end
 
 def null_float_zero(f)
   f == infinity ? 0.0 : f
 end
 
-def get_cover_base64(~coverart_mime=null(), ~base64=true, m) =
+def get_cover_base64(~coverart_mime=null, ~base64=true, m) =
   c = metadata.cover(coverart_mime=coverart_mime, m)
   if null.defined(c) then
     c = null.get(c)
@@ -74,32 +74,47 @@ def song_fields(~default_title, m)
   }
 end
 
+# С 2.5 обработчики метаданных могут идти одновременно на разных ядрах, поэтому
+# время эфира ставится обеими ячейками сразу, а история добавляется и обрезается
+# одной секцией atomic. Запись в файл и сборка song (она читает диск) — вне
+# секции: в atomic нельзя ни ждать, ни делать ввод-вывод.
 def save_history(m, ~last=10)
-  np_timestamp := time()
-  np_on_air := time.string("%Y/%m/%d %H:%M:%S")
+  now = time()
+  on_air = time.string("%Y/%m/%d %H:%M:%S")
+
+  def mark_on_air() =
+    np_timestamp := now
+    np_on_air := on_air
+  end
+
+  atomic(mark_on_air)
 
   if m["jingle_mode"] != "true" then
     song = song_fields(default_title="Default", m)
 
     sh =
       {
-        played_at = np_timestamp(),
+        played_at = now,
         played_at_timestamp_old = null_list("on_air_timestamp", m),
-        played_at_timestamp = np_timestamp(),
+        played_at_timestamp = now,
         played_at_date_time_old = null_list("on_air", m),
-        played_at_date_time = np_on_air(),
+        played_at_date_time = on_air,
         playlist = null_list("playlist", m),
         filename = null_list("filename", m),
         song = song
       }
 
-    songHistory := sh::songHistory()
+    def push() =
+      songHistory := sh::songHistory()
 
-    if list.length(songHistory()) > last then
-      songHistory := list.prefix(last, songHistory())
+      if list.length(songHistory()) > last then
+        songHistory := list.prefix(last, songHistory())
+      end
+
+      songHistory()
     end
 
-    data = json.stringify(songHistory(), compact=true)
+    data = json.stringify(atomic(push), compact=true)
     ignore(file.write(data=data, append=false, "#{log_dir}/song_history.json"))
   end
 end
@@ -132,7 +147,7 @@ def send_mq_event(payload)
       )
     catch error do
       handle_http_error(error)
-      null()
+      null
     end
 
   ignore(null.map(handle_http_response, response))
@@ -171,13 +186,19 @@ end
 # Во время джингла наружу отдаются метаданные предыдущего трека.
 last_metadata = ref([])
 
+# Проверка и подмена — одна секция: иначе между чтением и записью может встать
+# другой обработчик, и наружу уедет метаданные не того трека.
 def handle_jingle_mode(m) =
-  if m["jingle_mode"] == "true" then
-    last_metadata()
-  else
-    last_metadata.set(m)
-    m
+  def pick() =
+    if m["jingle_mode"] == "true" then
+      last_metadata()
+    else
+      last_metadata.set(m)
+      m
+    end
   end
+
+  atomic(pick)
 end
 
 # Навешивает всю обвязку now-playing и возвращает источник, прошедший

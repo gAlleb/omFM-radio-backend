@@ -77,7 +77,7 @@ def make_check(~on_accept=fun(_) -> (), ~defer_log=false,
 
       if not fresh and (give_up <= 0 or rejected() < give_up) then
         log(level=3, "Rejecting #{m['artist']} (played #{l.last(m)}s ago).")
-        rejected := rejected() + 1
+        ref.incr(rejected)
         false
       else
         if not fresh then

@@ -87,9 +87,17 @@ def artless_known(filename) =
   list.mem(artless_key(filename), artless())
 end
 
+# Ключ считается до секции: artless_key читает время файла, а в atomic
+# ввода-вывода быть не должно.
 def artless_add(filename) =
-  l = list.add(artless_key(filename), artless())
-  artless := if list.length(l) > artless_keep then covers_take(artless_keep, l) else l end
+  key = artless_key(filename)
+
+  def push() =
+    l = list.add(key, artless())
+    artless := if list.length(l) > artless_keep then covers_take(artless_keep, l) else l end
+  end
+
+  atomic(push)
 end
 
 # Чистим по времени файла: имя производное от трека и о возрасте не говорит.

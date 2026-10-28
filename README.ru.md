@@ -352,5 +352,5 @@ Icecast не стартует, если обязательные перемен�
 ## Заметки
 
 - [docker/liquidsoap/MIGRATION-NOTES.md](docker/liquidsoap/MIGRATION-NOTES.md)
-  — что менялось между версиями Liquidsoap и чеклист перехода на 2.5.
-  Текущий образ — `v2.4.5`.
+  — что менялось между версиями Liquidsoap и как стек переведён на 2.5.
+  Текущий образ — `rolling-release-v2.5.x`.
