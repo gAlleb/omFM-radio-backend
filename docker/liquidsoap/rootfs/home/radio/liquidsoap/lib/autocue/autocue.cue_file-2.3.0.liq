@@ -1,5 +1,6 @@
 # autocue.cue_file.liq
 # Liquidsoap 2.5 branch maintained by Stefan (gAlleb).
+# 2026-10-30 - Stefan (gAlleb): Preserve explicit file gain in keep mode.
 # 2026-10-30 - Stefan (gAlleb): Export gain once so amplify_behavior is respected.
 # 2026-10-30 - Stefan (gAlleb): Warn about fade-out shortening only when needed.
 # 2026-10-30 - Stefan (gAlleb): Add configurable file tag prefixes and explicit
@@ -868,9 +869,28 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
         end
       end
 
-      # Show any clipping prevention adjustments
+      # The core resolver can enforce keep for request annotations, but file
+      # metadata is read separately inside the provider. Preserve its explicit
+      # gain here too, after calculating the provider's normal loudness result.
+      keep_amplify =
+        settings.autocue.amplify_behavior() == "keep" and meta["liq_amplify"] != ""
+      if keep_amplify then
+        gain = meta["liq_amplify"]
+        reference = list.assoc(default=list.assoc("liq_reference_loudness", result()), "liq_reference_loudness", meta)
+        result := list.add(("liq_amplify", gain), list.assoc.remove("liq_amplify", result()))
+        result := list.add(("liq_reference_loudness", reference), list.assoc.remove("liq_reference_loudness", result()))
+        adjustment = list.assoc(default="0.00 dB", "liq_amplify_adjustment", meta)
+        result := list.add(("liq_amplify_adjustment", adjustment), list.assoc.remove("liq_amplify_adjustment", result()))
+        if settings.autocue.cue_file.unify_loudness_correction() then
+          result := list.add(("replaygain_track_gain", gain), list.assoc.remove("replaygain_track_gain", result()))
+          result := list.add(("replaygain_reference_loudness", reference), list.assoc.remove("replaygain_reference_loudness", result()))
+        end
+        log(level=3, label=label, "Keeping user-provided liq_amplify=#{gain} (amplify_behavior=keep).")
+      end
+
+      # Show only clipping prevention adjustments made for the provider's gain.
       amp_correction_dB = list.assoc(default="0.00 dB", "liq_amplify_adjustment", result())
-      if noclip and amp_correction_dB != "0.00 dB" then
+      if noclip and not keep_amplify and amp_correction_dB != "0.00 dB" then
         log(
           level=3,
           label=label,
