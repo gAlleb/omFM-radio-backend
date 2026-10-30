@@ -3,6 +3,8 @@
 
 # cue_file
 # Liquidsoap 2.5 branch maintained by Stefan (gAlleb).
+# 2026-10-30 Stefan (gAlleb) - Honor liq_cue_file=true consistently for JSON,
+#                            including cached tags and forced analysis.
 # 2026-10-30 Stefan (gAlleb) - Add configurable file tag prefixes; keep the
 #                            internal JSON and legacy liq_ tags compatible.
 #                          - Report whether existing tags or full audio
@@ -312,19 +314,23 @@ def convert_tags(tags, tag_prefix="liq_"):
 
     return tags
 
-# override a (typed) result with JSON overrides
-def override_from_JSON(tags, tags_json={}):
-    # get tags in JSON override file
-    tags_in_json = convert_tags(tags_json)
+def prefer_cue_file(tags, tags_json):
+    # An explicit request flag takes precedence over the selected file flag,
+    # just as request metadata takes precedence in the Liquidsoap adapter.
+    control = convert_tags({
+        k: v for k, v in tags_json.items() if k.lower() == "liq_cue_file"
+    })
+    return control.get("liq_cue_file", tags.get("liq_cue_file", False))
 
-    # do NOT overwrite from JSON if `liq_cue_file` is true
-    if "liq_cue_file" in tags and tags["liq_cue_file"] == True:
-        pass
-    else:
-        # unify, right overwrites left if key in both
-        tags = {**tags, **tags_in_json}
 
-    return tags
+# Override a typed result, keeping the original preference across analysis
+# (analyse() returns measurements, without the source's control flag).
+def override_from_JSON(tags, tags_json={}, prefer_file=None):
+    if prefer_file is None:
+        prefer_file = prefer_cue_file(tags, tags_json)
+    if prefer_file:
+        return tags
+    return {**tags, **convert_tags(tags_json)}
 
 
 def read_tags(
@@ -373,11 +379,11 @@ def read_tags(
 
     tags_in_stream = convert_tags(stream_tags, tag_prefix=tag_prefix)
     tags_in_format = convert_tags(format_tags, tag_prefix=tag_prefix)
-    tags_in_json = convert_tags(tags_json)
-
-    # unify, right overwrites left if key in both
-    # tags_found = tags_in_stream | tags_in_format | tags_in_json
-    tags_found = {**tags_in_stream, **tags_in_format, **tags_in_json}
+    tags_found = {**tags_in_stream, **tags_in_format}
+    prefer_file = prefer_cue_file(tags_found, tags_json)
+    tags_found = override_from_JSON(tags_found, tags_json, prefer_file=prefer_file)
+    if prefer_file:
+        tags_found["liq_cue_file"] = True
     # eprint(json.dumps(tags_found, indent=2, sort_keys=True))
 
     # add duration of stream #0 if it exists and can be converted to float
@@ -488,6 +494,7 @@ def read_tags(
     # eprint(skip_analysis, json.dumps(tags_found, indent=2, sort_keys=True))
     if diagnostics is not None:
         diagnostics["reason"] = analysis_reason
+        diagnostics["prefer_file"] = prefer_file
     return skip_analysis, tags_found
 
 
@@ -1297,7 +1304,8 @@ if analysis_performed:
     )
     # allow to override even the analysis results (not if `liq_cue_file=true`)
     if args.json:
-        result = override_from_JSON(result, tags_json)
+        result = override_from_JSON(
+            result, tags_json, prefer_file=diagnostics["prefer_file"])
     # override duration, seems ffprobe can be more exact
     if "duration" in tags_found:
         result["duration"] = tags_found["duration"]
