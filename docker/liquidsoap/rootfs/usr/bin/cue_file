@@ -2,7 +2,8 @@
 # encoding: utf-8
 
 # cue_file
-# Liquidsoap 2.5 branch maintained by Stefan (gAlleb).
+# Maintained by Stefan (gAlleb); tested with Liquidsoap 2.4.5 and 2.5.
+# 2026-10-30 Stefan (gAlleb) - Release 5.0.0 from the maintained main branch.
 # 2026-10-30 Stefan (gAlleb) - Apply the selected prefix to JSON as well as files.
 # 2026-10-30 Stefan (gAlleb) - Honor liq_cue_file=true consistently for JSON,
 #                            including cached tags and forced analysis.
@@ -86,7 +87,7 @@
 
 __author__ = 'Matthias C. Hormann; Stefan (gAlleb)'
 __maintainer__ = 'Stefan (gAlleb)'
-__version__ = '4.1.1'
+__version__ = '5.0.0'
 
 import os
 import sys

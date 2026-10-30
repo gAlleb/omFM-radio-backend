@@ -1,5 +1,6 @@
 # autocue.cue_file.liq
-# Liquidsoap 2.5 branch maintained by Stefan (gAlleb).
+# Maintained by Stefan (gAlleb); tested with Liquidsoap 2.4.5 and 2.5.
+# 2026-10-30 - Stefan (gAlleb): Release 5.0.0 from the maintained main branch.
 # 2026-10-30 - Stefan (gAlleb): Use the selected prefix for annotations and JSON.
 # 2026-10-30 - Stefan (gAlleb): Add optional bounded fade-out extension.
 # 2026-10-30 - Stefan (gAlleb): Preserve explicit file gain in keep mode.
@@ -74,7 +75,7 @@ let settings.autocue.cue_file.version =
   settings.make(
     description=
       "Software version of autocue.cue_file. Should coincide with `cue_file`.",
-    "4.1.1"
+    "5.0.0"
   )
 
 # Internal only! Not a user setting.
@@ -1247,10 +1248,9 @@ decoder.metadata.add(
 # settings.autocue.cue_file.nice := false  # Linux/MacOS only: Use NI=18 for analysis
 # settings.autocue.cue_file.use_json_metadata := true  # pass metadata to `cue_file` as JSON
 
-# Check Autocue setup, print result, shutdown if problems
-# The check results will also be in the log.
-# Returns a bool: true=ok, false=error. We ignore that here.
-# set `print=true` for standalone scripts, `false` for AzuraCast
+# Optional legacy helper; leave disabled in the maintained setup.
+# Its version regex is incompatible with the tested builds (see README).
+# The adapter already initializes its settings when included.
 # ignore(check_autocue_setup(shutdown=true, print=false))
 
 # `enable_autocue_metadata()` will autocue ALL files Liquidsoap processes.
