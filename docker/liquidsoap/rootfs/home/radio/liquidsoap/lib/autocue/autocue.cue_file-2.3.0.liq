@@ -1,5 +1,6 @@
 # autocue.cue_file.liq
 # Liquidsoap 2.5 branch maintained by Stefan (gAlleb).
+# 2026-10-30 - Stefan (gAlleb): Add optional bounded fade-out extension.
 # 2026-10-30 - Stefan (gAlleb): Preserve explicit file gain in keep mode.
 # 2026-10-30 - Stefan (gAlleb): Export gain once so amplify_behavior is respected.
 # 2026-10-30 - Stefan (gAlleb): Warn about fade-out shortening only when needed.
@@ -111,6 +112,28 @@ let settings.autocue.cue_file.fade_out =
     description=
       "Default fade-out duration if not specified by the user.",
     2.5
+  )
+
+let settings.autocue.cue_file.extend_fade_out =
+  settings.make(
+    description="Preserve a sufficiently long ending by extending fade-out \
+      from start_next to cue_out instead of cutting cue_out short.",
+    false
+  )
+
+let settings.autocue.cue_file.fade_out_extension_threshold =
+  settings.make(
+    description="Minimum extra tail beyond the requested fade-out, in seconds, \
+      to enable extension. Must be non-negative.",
+    1.6
+  )
+
+let settings.autocue.cue_file.fade_out_extension_max =
+  settings.make(
+    description="Maximum full tail length eligible for fade-out extension, \
+      in seconds. Longer tails use the original cue-out shortening rule. \
+      Must be positive.",
+    15.0
   )
 
 let settings.autocue.cue_file.timeout =
@@ -455,6 +478,12 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
   nice = settings.autocue.cue_file.nice()
   noclip = settings.autocue.cue_file.noclip()
   use_json_metadata = settings.autocue.cue_file.use_json_metadata()
+  extend_fade_out = settings.autocue.cue_file.extend_fade_out()
+  extension_threshold = settings.autocue.cue_file.fade_out_extension_threshold()
+  extension_max = settings.autocue.cue_file.fade_out_extension_max()
+  if extend_fade_out and (extension_threshold < 0.0 or extension_max <= 0.0) then
+    error.raise(error.invalid, "Fade-out extension requires a non-negative threshold and a positive maximum.")
+  end
 
   label = "autocue.cue_file"
 
@@ -963,16 +992,31 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
         if
           liq_cross_start_next + liq_fade_out < liq_cue_out
         then
-          cue_out = liq_cross_start_next + liq_fade_out
           overlay_duration = liq_cue_out - liq_cross_start_next
-          log(
-            level=3,
-            label=label,
-            "Given fade-out (#{liq_fade_out} s) < \
-             overlay duration (#{overlay_duration} s), moving cue-out point \
-             from #{liq_cue_out} s to #{cue_out} s."
-          )
-          (liq_fade_out, cue_out)
+          # Allow sub-microsecond arithmetic noise at inclusive boundaries.
+          if
+            extend_fade_out and liq_fade_out > 0.0 and
+            overlay_duration - liq_fade_out + 0.000001 >= extension_threshold and
+            overlay_duration <= extension_max + 0.000001
+          then
+            log(
+              level=3,
+              label=label,
+              "Extending fade-out from #{liq_fade_out} s to #{overlay_duration} s; \
+               preserving start_next=#{liq_cross_start_next} s and cue_out=#{liq_cue_out} s."
+            )
+            (overlay_duration, liq_cue_out)
+          else
+            cue_out = liq_cross_start_next + liq_fade_out
+            log(
+              level=3,
+              label=label,
+              "Given fade-out (#{liq_fade_out} s) < \
+               overlay duration (#{overlay_duration} s), moving cue-out point \
+               from #{liq_cue_out} s to #{cue_out} s."
+            )
+            (liq_fade_out, cue_out)
+          end
         else
           fade_out = liq_cue_out - liq_cross_start_next
           if liq_cross_start_next + liq_fade_out > liq_cue_out then
@@ -1100,6 +1144,9 @@ autocue.register(name="cue_file", cue_file)
 # settings.autocue.cue_file.tag_prefix := "liq_"  # legacy; use e.g. ac_ for new libraries
 # settings.autocue.cue_file.fade_in := 0.1  # seconds
 # settings.autocue.cue_file.fade_out := 2.5  # seconds
+# settings.autocue.cue_file.extend_fade_out := false  # opt in to preserve long tails
+# settings.autocue.cue_file.fade_out_extension_threshold := 1.6  # minimum extra seconds
+# settings.autocue.cue_file.fade_out_extension_max := 15.0  # maximum eligible tail
 # settings.autocue.cue_file.timeout := 60.0  # seconds
 # settings.autocue.cue_file.target := -18.0  # LUFS
 # settings.autocue.cue_file.silence := -42.0  # LU below track loudness
