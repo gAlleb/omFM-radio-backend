@@ -2,6 +2,13 @@
 # encoding: utf-8
 
 # cue_file
+# Liquidsoap 2.5 branch maintained by Stefan (gAlleb).
+# 2026-10-30 Stefan (gAlleb) - Add configurable file tag prefixes; keep the
+#                            internal JSON and legacy liq_ tags compatible.
+#                          - Report whether existing tags or full audio
+#                            analysis supplied the result, including the reason.
+#
+# Original upstream history:
 # 2024-02-08 Moonbase59 - first unpublished test versions
 # 2024-03-23 Moonbase59 - first published version
 # 2024-04-11 Moonbase59 - Added liq_cross_start_next
@@ -74,7 +81,8 @@
 #   https://github.com/Warblefly/TrackBoundaries
 # Some collaborative work with RM-FM (@RM-FM): Sustained ending analysis.
 
-__author__ = 'Matthias C. Hormann'
+__author__ = 'Matthias C. Hormann; Stefan (gAlleb)'
+__maintainer__ = 'Stefan (gAlleb)'
 __version__ = '4.1.1'
 
 import os

@@ -1,4 +1,10 @@
 # autocue.cue_file.liq
+# Liquidsoap 2.5 branch maintained by Stefan (gAlleb).
+# 2026-10-30 - Stefan (gAlleb): Add configurable file tag prefixes and explicit
+#                             analysis diagnostics; use json.object() for 2.5.
+# 2026-09-16 - Stefan (gAlleb): Use null and stop forcing target_cross_duration.
+#
+# Original upstream history:
 # 2024-04-10 - Moonbase59
 # 2024-04-12 - Toots: re-organize to integrate as core autocue implementation.
 # 2024-04-12 - Moonbase59 - re-introduce `liq_duration` as `liq_cue_duration`.
