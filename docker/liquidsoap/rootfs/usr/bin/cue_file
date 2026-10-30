@@ -284,13 +284,17 @@ def remove_suffix(tags):
 
 
 # convert tags into their typed variants, ready for calculations
-def convert_tags(tags):
+def convert_tags(tags, tag_prefix="liq_"):
     items = tags.items()
 
-    # make keys lowercase, include only tags in tags_to_check
+    # File namespaces are translated at the boundary. JSON overrides use the
+    # default canonical namespace, regardless of the selected file prefix.
+    names = {
+        tag_prefix + k[4:] if k.startswith("liq_") else k: k
+        for k in tags_to_check
+    }
     tags = {
-        k.lower(): v for k,
-        v in items if k.lower() in tags_to_check}
+        names[k.lower()]: v for k, v in items if k.lower() in names}
 
     # remove suffixes from several tags
     tags = remove_suffix(tags)
@@ -321,7 +325,8 @@ def read_tags(
         target=TARGET_LUFS,
         blankskip=0.0,
         noclip=False,
-        diagnostics=None):
+        diagnostics=None,
+        tag_prefix="liq_"):
     # NOTE: Older ffmpeg/ffprobe don’t read ID3 tags if RIFF chunk found,
     #   see https://trac.ffmpeg.org/ticket/9848
     # ffprobe -v quiet -show_entries
@@ -358,8 +363,8 @@ def read_tags(
     except KeyError:
         format_tags = {}
 
-    tags_in_stream = convert_tags(stream_tags)
-    tags_in_format = convert_tags(format_tags)
+    tags_in_stream = convert_tags(stream_tags, tag_prefix=tag_prefix)
+    tags_in_format = convert_tags(format_tags, tag_prefix=tag_prefix)
     tags_in_json = convert_tags(tags_json)
 
     # unify, right overwrites left if key in both
@@ -869,8 +874,8 @@ def analyse(
     })
 
 
-def write_tags(filename, tags={}, replaygain=False):
-    # Add the liq_* tags (and only these)
+def write_tags(filename, tags={}, replaygain=False, tag_prefix="liq_"):
+    # Prepare canonical autocue tags, then translate their file namespace.
     # Only touch replaygain_track_gain or R128_TRACK_GAIN if so requested.
     # Only write tags to files if we can safely do so.
     filename = Path(filename)
@@ -935,6 +940,12 @@ def write_tags(filename, tags={}, replaygain=False):
         # Never write "duration" to tags
         if "duration" in tags_new:
             del tags_new["duration"]
+
+        # Preserve units and precision, renaming only the prepared autocue keys.
+        tags_new = {
+            tag_prefix + k[4:] if k.startswith("liq_") else k: v
+            for k, v in tags_new.items()
+        }
 
         # eprint(replaygain, temp, json.dumps(tags_new, indent=2))
 
@@ -1106,6 +1117,24 @@ parser.add_argument(
 # version='%(prog)s {version}'.format(
 #     version=__version__))
 parser.add_argument("file", help="File to be processed")
+
+
+def parse_tag_prefix(value):
+    value = value.lower()
+    if not re.fullmatch(r"[a-z_][a-z0-9_.-]*", value):
+        raise argparse.ArgumentTypeError(
+            "tag prefix must start with a letter or underscore and contain "
+            "only letters, digits, underscores, dots or hyphens")
+    return value
+
+
+parser.add_argument(
+    "--tag-prefix",
+    type=parse_tag_prefix,
+    default="liq_",
+    help="Prefix for reading/writing autocue tags in audio files. Use a "
+    "custom prefix such as ac_ for new libraries; liq_ preserves legacy "
+    "tagging. JSON and ReplayGain names are unchanged.")
 parser.add_argument(
     "-t",
     "--target",
@@ -1192,7 +1221,7 @@ parser.add_argument(
 parser.add_argument(
     "-w",
     "--write",
-    help="Write Liquidsoap liq_* tags to file. Ensure you have enough "
+    help="Write autocue tags to file using --tag-prefix. Ensure you have enough "
     "free space to hold a copy of the original file.",
     default=False,
     action='store_true')
@@ -1240,7 +1269,7 @@ if args.json:
 diagnostics = {}
 skip_analysis, tags_found = read_tags(
     args.file, tags_json, args.target, args.blankskip, args.noclip,
-    diagnostics=diagnostics)
+    diagnostics=diagnostics, tag_prefix=args.tag_prefix)
 
 analysis_performed = args.force or not skip_analysis
 analysis_reason = "forced by -f/--force" if args.force else diagnostics["reason"]
@@ -1270,7 +1299,7 @@ else:
 # eprint(result)
 
 if args.write:
-    write_tags(args.file, result, args.replaygain)
+    write_tags(args.file, result, args.replaygain, tag_prefix=args.tag_prefix)
 
 # prepare JSON result
 # we use "dB" instead of "LU" units, because LS & others don’t understand "LU"

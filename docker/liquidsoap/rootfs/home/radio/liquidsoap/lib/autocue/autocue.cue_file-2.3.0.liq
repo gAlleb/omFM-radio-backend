@@ -81,6 +81,15 @@ let settings.autocue.cue_file.path =
     "cue_file"
   )
 
+let settings.autocue.cue_file.tag_prefix =
+  settings.make(
+    description=
+      "Prefix of autocue tags stored in audio files. Use e.g. ac_ for new \
+       libraries; liq_ preserves legacy tagging. Internal Liquidsoap metadata \
+       and request annotations keep their canonical names.",
+    "liq_"
+  )
+
 let settings.autocue.cue_file.fade_in =
   settings.make(
     description=
@@ -385,9 +394,44 @@ def check_autocue_setup(~shutdown=false, ~print=false) =
 end
 
 
+# Normalize file tags before merging request annotations. Never mix fields
+# from the selected file namespace with legacy liq_* measurements.
+def cue_file_metadata(~tag_prefix, file_metadata) =
+  if tag_prefix == "liq_" then
+    file_metadata
+  else
+    fields = [
+      "amplify_adjustment", "amplify", "blankskip", "blank_skipped",
+      "cross_duration", "cross_start_next", "cue_duration", "cue_file",
+      "cue_in", "cue_out", "fade_in", "fade_out", "longtail", "loudness",
+      "loudness_range", "reference_loudness", "sustained_ending",
+      "true_peak_db", "true_peak", "hook1_in", "hook1_out", "hook2_in",
+      "hook2_out", "hook3_in", "hook3_out", "ramp1", "ramp2", "ramp3"
+    ]
+    names = list.map(fun (field) -> (tag_prefix ^ field, "liq_" ^ field), fields)
+    def normalize_file_tag(entry) =
+      let (key, value) = entry
+      key = string.case(key)
+      if list.assoc.mem(key, names) then
+        (list.assoc(key, names), value)
+      elsif string.contains(prefix="liq_", key) then
+        null
+      else
+        entry
+      end
+    end
+    list.filter_map(normalize_file_tag, file_metadata)
+  end
+end
+
 # Compute cue_file data
 # @flag extra
 def cue_file(~request_metadata, ~file_metadata, filename) =
+  tag_prefix = string.case(settings.autocue.cue_file.tag_prefix())
+  if not string.match(pattern="^[a-z_][a-z0-9_.-]*$", tag_prefix) then
+    error.raise(error.invalid, "Invalid cue_file tag_prefix: #{tag_prefix}")
+  end
+  file_metadata = cue_file_metadata(tag_prefix=tag_prefix, file_metadata)
   timeout = settings.autocue.cue_file.timeout()
   target = settings.autocue.cue_file.target()
   silence = settings.autocue.cue_file.silence()
@@ -532,6 +576,10 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
     if write_replaygain then args := list.add('-r', args()) end
     if force_analysis then args := list.add('-f', args()) end
     if nice then args := list.add('-n', args()) end
+    # Omit the default option so existing external cue_file versions still work.
+    if tag_prefix != "liq_" then
+      args := ["--tag-prefix", tag_prefix, ...args()]
+    end
 
     tempfile = ref("")
     if use_json_metadata then
@@ -1018,6 +1066,7 @@ autocue.register(name="cue_file", cue_file)
 # Here's a list of all possible settings with their defaults
 
 # settings.autocue.cue_file.path := "cue_file"
+# settings.autocue.cue_file.tag_prefix := "liq_"  # legacy; use e.g. ac_ for new libraries
 # settings.autocue.cue_file.fade_in := 0.1  # seconds
 # settings.autocue.cue_file.fade_out := 2.5  # seconds
 # settings.autocue.cue_file.timeout := 60.0  # seconds
