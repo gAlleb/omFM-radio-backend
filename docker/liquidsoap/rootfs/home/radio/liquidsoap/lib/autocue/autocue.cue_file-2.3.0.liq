@@ -1,5 +1,6 @@
 # autocue.cue_file.liq
 # Liquidsoap 2.5 branch maintained by Stefan (gAlleb).
+# 2026-10-30 - Stefan (gAlleb): Warn about fade-out shortening only when needed.
 # 2026-10-30 - Stefan (gAlleb): Add configurable file tag prefixes and explicit
 #                             analysis diagnostics; use json.object() for 2.5.
 # 2026-09-16 - Stefan (gAlleb): Use null and stop forcing target_cross_duration.
@@ -953,12 +954,14 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
           (liq_fade_out, cue_out)
         else
           fade_out = liq_cue_out - liq_cross_start_next
-          log(
-            level=2,
-            label=label,
-            "Given fade-out duration (#{liq_fade_out} s) exceeds \
-             available time, using #{fade_out} s."
-          )
+          if liq_cross_start_next + liq_fade_out > liq_cue_out then
+            log(
+              level=2,
+              label=label,
+              "Given fade-out duration (#{liq_fade_out} s) exceeds \
+               available time, using #{fade_out} s."
+            )
+          end
           (fade_out, liq_cue_out)
         end
 
