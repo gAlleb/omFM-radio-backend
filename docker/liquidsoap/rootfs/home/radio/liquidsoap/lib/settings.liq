@@ -33,7 +33,9 @@ covers_base_url = "#{hls_base_url}/#{station}/covers"
 %include "covers.liq"
 
 settings.log.stdout := true
-settings.clock.leak_warning := 5
+# Keep the standard diagnostic interval: this counts cumulative activations,
+# including temporary sources created during normal crossfade transitions.
+settings.clock.leak_warning := 50
 settings.server.telnet := true
 settings.server.telnet.port := telnet_port
 
