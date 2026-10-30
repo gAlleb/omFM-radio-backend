@@ -1,5 +1,6 @@
 # autocue.cue_file.liq
 # Liquidsoap 2.5 branch maintained by Stefan (gAlleb).
+# 2026-10-30 - Stefan (gAlleb): Export gain once so amplify_behavior is respected.
 # 2026-10-30 - Stefan (gAlleb): Warn about fade-out shortening only when needed.
 # 2026-10-30 - Stefan (gAlleb): Add configurable file tag prefixes and explicit
 #                             analysis diagnostics; use json.object() for 2.5.
@@ -1022,7 +1023,6 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
       extra_metadata =
         [
           ("duration", list.assoc("duration", result())),
-          ("liq_amplify", list.assoc("liq_amplify", result())),
           ("liq_amplify_adjustment", list.assoc("liq_amplify_adjustment", result())),
           ("liq_cue_duration", list.assoc("liq_cue_duration", result())),
           ("liq_longtail", list.assoc("liq_longtail", result())),
@@ -1041,6 +1041,8 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
         ]
 
       {
+        # Export gain only here: a duplicate in extra_metadata would bypass
+        # Liquidsoap's keep/override/ignore policy for user-provided gain.
         amplify = list.assoc("liq_amplify", result()),
         cue_in = float_of_string(list.assoc("liq_cue_in", result())),
         cue_out = float_of_string(list.assoc("liq_cue_out", result())),
