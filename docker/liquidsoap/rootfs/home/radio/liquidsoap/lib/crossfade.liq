@@ -95,52 +95,8 @@ def live_aware_crossfade(ending, starting) =
 
 end
 
-# Длина буфера перехода из метаданных автокью.
-#
-# В 2.5 у cross одна длительность вместо start/end, и перебить её на трек можно
-# только метаданным `liq_cross_duration`. Адаптер автокью в стандартной
-# библиотеке при этом по-прежнему выставляет `liq_cross_start_duration` и
-# `liq_cross_end_duration` — их в 2.5 не читает уже никто, этих имён нет даже в
-# бинарнике. Без переноса cross брал бы на каждый трек одно значение из
-# `duration=`, и посчитанные автокью фейды в эфир не попадали бы.
-#
-# Одно число у трека работает на две роли. Когда трек кончается, им задаётся
-# длина буфера его конца, и тут нужен end_duration. Когда он начинается — длина
-# буфера его начала, и тут нужно столько, сколько потребует фейд-аут предыдущего
-# трека; своё end_duration к этому отношения не имеет. В 2.4.5 вторую роль
-# считал сам оператор: `min(буфер конца предыдущего, liq_cross_max_start_duration)`.
-# В 2.5 этого нет, а в переход уходит `min(буфер конца, буфер начала)` — то есть
-# трек со своим коротким end_duration обрезает фейд-аут предыдущего. На стенде
-# это видно прямо: переход Decay → Steady давал на 2.4.5 `0.98s / 0.98s`, а на
-# 2.5 с одним end_duration — `0.98s / 0.02s` и строку
-# `Dropping 0.98 from liq_fade_out`, то есть секундный фейд терялся целиком.
-#
-# Поэтому берём `max(end_duration, min(max_start_duration, предел))`: конец
-# обслужен точно, а начало отдаёт столько, сколько может, но не больше предела.
-# Предел — `settings.autocue.cue_file.fade_out()`, и это именно верхняя граница
-# end_duration: наш автокью сводит cue-out с точкой начала следующего трека так,
-# что `liq_fade_out_delay` всегда 0, а `liq_fade_out` настройку не превышает.
-#
-# Буфер длиннее фейда сам по себе не страшен: cross доводит `liq_fade_out_delay`
-# и `liq_fade_out_start_next` до новой длины, а переход выше разносит по ним оба
-# фейда. Гула от этого не возникает — проверено на стенде.
-def autocue_cross_duration(m) =
-    end_duration = float_of_string(default=-1., m["liq_cross_end_duration"])
-
-    if end_duration < 0. then
-        m
-    else
-        limit = settings.autocue.cue_file.fade_out()
-        max_start = float_of_string(default=0., m["liq_cross_max_start_duration"])
-        spare = if max_start < limit then max_start else limit end
-
-        [("liq_cross_duration", "#{if end_duration > spare then end_duration else spare end}")]
-    end
-end
-
 # Показ метаданных в логе и собственно кроссфейд.
 def crossfaded(src)
-    src = metadata.map(update=true, autocue_cross_duration, src)
     src.on_metadata(synchronous=false, show_meta)
     cross(
         duration=settings.autocue.cue_file.fade_out(),
