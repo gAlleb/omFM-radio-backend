@@ -1,5 +1,6 @@
 # autocue.cue_file.liq
 # Maintained by Stefan (gAlleb); tested with Liquidsoap 2.4.5 and 2.5.
+# 2026-10-30 - Stefan (gAlleb): Configure FFmpeg/FFprobe and manual diagnostics.
 # 2026-10-30 - Stefan (gAlleb): Repair the optional setup helper using PR #38.
 # 2026-10-30 - Stefan (gAlleb): Release 5.0.0 from the maintained main branch.
 # 2026-10-30 - Stefan (gAlleb): Use the selected prefix for annotations and JSON.
@@ -93,6 +94,12 @@ let settings.autocue.cue_file.path =
       "Path of the cue_file binary.",
     "cue_file"
   )
+
+let settings.autocue.cue_file.ffmpeg =
+  settings.make(description="FFmpeg executable path or name.", "ffmpeg")
+
+let settings.autocue.cue_file.ffprobe =
+  settings.make(description="FFprobe executable path or name.", "ffprobe")
 
 let settings.autocue.cue_file.tag_prefix =
   settings.make(
@@ -412,6 +419,46 @@ def check_autocue_setup(~shutdown=false, ~print=false) =
 end
 
 
+# Explicit diagnostic probe only; including the adapter never calls this.
+# It reports availability and major compatibility without changing provider settings.
+def diagnose_cue_file(~print=false) =
+  label = "autocue.cue_file"
+  def report(message) =
+    log(level=3, label=label, message)
+    if print then stdlib_print(message) end
+  end
+  try
+    p = process.run(process.quote.command(
+      settings.autocue.cue_file.path(),
+      args=["--diagnose", "--ffmpeg", settings.autocue.cue_file.ffmpeg(),
+        "--ffprobe", settings.autocue.cue_file.ffprobe()]
+    ))
+    if p.status != "exit" or (p.status.code != 0 and p.status.code != 1) then
+      report("Could not run cue_file diagnostics: #{p.status} (#{p.status.code}).")
+      false
+    else
+      let json.parse (data : {
+        version: string, ok: bool,
+        ffmpeg: {path: string, ok: bool, version: string, error: string},
+        ffprobe: {path: string, ok: bool, version: string, error: string}
+      }) = p.stdout
+      expected = semver(settings.autocue.cue_file.version())
+      actual = semver(data.version)
+      compatible = null.defined(expected?.major) and null.defined(actual?.major)
+        and expected?.major == actual?.major
+      report("cue_file #{data.version}: major-compatible=#{compatible}")
+      list.iter(fun (entry) -> begin
+        let (name, tool) = entry
+        report("#{name} #{tool.path}: ok=#{tool.ok}; #{tool.version} #{tool.error}")
+      end, [("ffmpeg", data.ffmpeg), ("ffprobe", data.ffprobe)])
+      data.ok and data.ffmpeg.ok and data.ffprobe.ok and compatible and p.status.code == 0
+    end
+  catch error do
+    report("Could not read cue_file diagnostics: #{error}")
+    false
+  end
+end
+
 cue_file_fields = [
   "amplify_adjustment", "amplify", "blankskip", "blank_skipped",
   "cross_duration", "cross_start_next", "cue_duration", "cue_file",
@@ -655,6 +702,13 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
     if write_replaygain then args := list.add('-r', args()) end
     if force_analysis then args := list.add('-f', args()) end
     if nice then args := list.add('-n', args()) end
+    # Preserve compatibility with old CLIs when the default PATH lookup is used.
+    if settings.autocue.cue_file.ffmpeg() != "ffmpeg" then
+      args := ["--ffmpeg", settings.autocue.cue_file.ffmpeg(), ...args()]
+    end
+    if settings.autocue.cue_file.ffprobe() != "ffprobe" then
+      args := ["--ffprobe", settings.autocue.cue_file.ffprobe(), ...args()]
+    end
     # Omit the default option so existing external cue_file versions still work.
     if tag_prefix != "liq_" then
       args := ["--tag-prefix", tag_prefix, ...args()]
@@ -1210,6 +1264,9 @@ decoder.metadata.add(
 # Here's a list of all possible settings with their defaults
 
 # settings.autocue.cue_file.path := "cue_file"
+# settings.autocue.cue_file.ffmpeg := "ffmpeg"
+# settings.autocue.cue_file.ffprobe := "ffprobe"
+# Manual diagnostics only: ignore(diagnose_cue_file(print=true))
 # settings.autocue.cue_file.tag_prefix := "liq_"  # legacy; use e.g. ac_ for new libraries
 # settings.autocue.cue_file.fade_in := 0.1  # seconds
 # settings.autocue.cue_file.fade_out := 2.5  # seconds

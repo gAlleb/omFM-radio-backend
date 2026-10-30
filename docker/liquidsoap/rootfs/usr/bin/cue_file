@@ -3,6 +3,7 @@
 
 # cue_file
 # Maintained by Stefan (gAlleb); tested with Liquidsoap 2.4.5 and 2.5.
+# 2026-10-30 Stefan (gAlleb) - Configure FFmpeg/FFprobe and add manual diagnostics.
 # 2026-10-30 Stefan (gAlleb) - Release 5.0.0 from the maintained main branch.
 # 2026-10-30 Stefan (gAlleb) - Apply the selected prefix to JSON as well as files.
 # 2026-10-30 Stefan (gAlleb) - Honor liq_cue_file=true consistently for JSON,
@@ -349,7 +350,8 @@ def read_tags(
         blankskip=0.0,
         noclip=False,
         diagnostics=None,
-        tag_prefix="liq_"):
+        tag_prefix="liq_",
+        ffprobe=FFPROBE):
     # NOTE: Older ffmpeg/ffprobe don’t read ID3 tags if RIFF chunk found,
     #   see https://trac.ffmpeg.org/ticket/9848
     # ffprobe -v quiet -show_entries
@@ -357,7 +359,7 @@ def read_tags(
     # filename
     r = subprocess.run(
         [
-            FFPROBE,
+            ffprobe,
             "-v",
             "quiet",
             "-show_entries",
@@ -563,7 +565,8 @@ def analyse(
         drop=SUSTAINED_LOUDNESS_DROP,
         blankskip=0.0,
         nice=NICE,
-        noclip=False):
+        noclip=False,
+        ffmpeg=FFMPEG):
     # ffmpeg -v quiet -y -i audiofile.ext -vn -af ebur128=target=-18:metadata=1,ametadata=mode=print:file=- -f null null
     # ffmpeg -v quiet -y -i audiofile.ext -vn -af ebur128=target=-18:peak=true:metadata=1,ametadata=mode=print:file=- -f null null
     # Output:
@@ -578,7 +581,7 @@ def analyse(
     # lavfi.r128.true_peaks_ch1=1.632
 
     args = [
-        FFMPEG,
+        ffmpeg,
         "-v",
         "quiet",
         "-nostdin",
@@ -899,7 +902,7 @@ def analyse(
     })
 
 
-def write_tags(filename, tags={}, replaygain=False, tag_prefix="liq_"):
+def write_tags(filename, tags={}, replaygain=False, tag_prefix="liq_", ffmpeg=FFMPEG):
     # Prepare canonical autocue tags, then translate their file namespace.
     # Only touch replaygain_track_gain or R128_TRACK_GAIN if so requested.
     # Only write tags to files if we can safely do so.
@@ -1041,7 +1044,7 @@ def write_tags(filename, tags={}, replaygain=False, tag_prefix="liq_"):
             # eprint(metadata_args)
 
             args = [
-                FFMPEG,
+                ffmpeg,
                 '-v', 'quiet',
                 '-nostdin',
                 '-y',
@@ -1058,6 +1061,26 @@ def write_tags(filename, tags={}, replaygain=False, tag_prefix="liq_"):
             os.replace(str(temp), str(filename.absolute()))
 
     return
+
+
+def diagnose_tools(ffmpeg=FFMPEG, ffprobe=FFPROBE):
+    """Explicit, read-only probes; never analyze or tag an audio file."""
+    report = {"version": __version__, "mutagen": MUTAGEN_VERSION}
+    for name, executable in [("ffmpeg", ffmpeg), ("ffprobe", ffprobe)]:
+        entry = {"path": executable, "ok": False, "version": "", "error": ""}
+        try:
+            p = subprocess.run([executable, "-version"], capture_output=True,
+                               text=True, timeout=5)
+            entry["version"] = next(iter(p.stdout.splitlines()), "")
+            entry["ok"] = p.returncode == 0 and entry["version"].startswith(name + " version ")
+            if not entry["ok"]:
+                entry["error"] = (next(iter(p.stderr.splitlines()), "")
+                                  or f"Unexpected version output or exit status {p.returncode}")
+        except (OSError, subprocess.TimeoutExpired) as error:
+            entry["error"] = str(error)
+        report[name] = entry
+    report["ok"] = report["ffmpeg"]["ok"] and report["ffprobe"]["ok"]
+    return report
 
 
 # CLI command parser and help text
@@ -1138,7 +1161,11 @@ parser.add_argument(
     version=f"%(prog)s {__version__}\nmutagen {MUTAGEN_VERSION}")
 # version='%(prog)s {version}'.format(
 #     version=__version__))
-parser.add_argument("file", help="File to be processed")
+parser.add_argument("file", nargs="?", help="File to be processed (not needed for --diagnose)")
+parser.add_argument("--ffmpeg", default=FFMPEG, help="FFmpeg executable path or name (default: %(default)s)")
+parser.add_argument("--ffprobe", default=FFPROBE, help="FFprobe executable path or name (default: %(default)s)")
+parser.add_argument("--diagnose", action="store_true",
+                    help="Report executable availability as JSON without processing files")
 
 
 def parse_tag_prefix(value):
@@ -1282,6 +1309,13 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+if args.diagnose:
+    report = diagnose_tools(args.ffmpeg, args.ffprobe)
+    print(json.dumps(report))
+    sys.exit(0 if report["ok"] else 1)
+if args.file is None:
+    parser.error("the following arguments are required: file")
+
 # read JSON from stdin or file, containing "overriding" or missing tags
 # intended for pre-processing software
 tags_json = {}
@@ -1295,7 +1329,7 @@ if args.json:
 diagnostics = {}
 skip_analysis, tags_found = read_tags(
     args.file, tags_json, args.target, args.blankskip, args.noclip,
-    diagnostics=diagnostics, tag_prefix=args.tag_prefix)
+    diagnostics=diagnostics, tag_prefix=args.tag_prefix, ffprobe=args.ffprobe)
 
 analysis_performed = args.force or not skip_analysis
 analysis_reason = "forced by -f/--force" if args.force else diagnostics["reason"]
@@ -1311,7 +1345,8 @@ if analysis_performed:
         drop=args.drop,
         blankskip=args.blankskip,
         nice=args.nice,
-        noclip=args.noclip
+        noclip=args.noclip,
+        ffmpeg=args.ffmpeg
     )
     # allow to override even the analysis results (not if `liq_cue_file=true`)
     if args.json:
@@ -1327,7 +1362,8 @@ else:
 # eprint(result)
 
 if args.write:
-    write_tags(args.file, result, args.replaygain, tag_prefix=args.tag_prefix)
+    write_tags(args.file, result, args.replaygain, tag_prefix=args.tag_prefix,
+               ffmpeg=args.ffmpeg)
 
 # prepare JSON result
 # we use "dB" instead of "LU" units, because LS & others don’t understand "LU"
