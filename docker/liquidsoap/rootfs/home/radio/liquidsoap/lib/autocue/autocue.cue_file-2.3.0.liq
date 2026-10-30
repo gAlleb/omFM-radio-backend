@@ -1,4 +1,5 @@
 # autocue.cue_file.liq
+# 2026-10-30 - Stefan (gAlleb): Use autocue_* for internal working keys.
 # Maintained by Stefan (gAlleb); tested with Liquidsoap 2.4.5 and 2.5.
 # 2026-10-30 - Stefan (gAlleb): Release 5.0.1 with tool paths and optional helper fixes.
 # 2026-10-30 - Stefan (gAlleb): Configure FFmpeg/FFprobe and manual diagnostics.
@@ -231,7 +232,7 @@ let settings.autocue.cue_file.unify_loudness_correction =
 let settings.autocue.cue_file.write_tags =
   settings.make(
     description=
-      "Write back `liq_*` tags to original audio file. Ensure you have enough \
+      "Write back selected-prefix tags to original audio file. Ensure you have enough \
        free space to hold a copy of the original file.",
     false
   )
@@ -473,37 +474,42 @@ cue_file_fields = [
 # remain valid and take precedence over aliases; custom files never backfill
 # missing measurements from legacy liq_* tags.
 def cue_file_metadata(~tag_prefix, ~annotations=false, file_metadata) =
-  if tag_prefix == "liq_" then
-    file_metadata
-  else
-    names = list.map(fun (field) -> (tag_prefix ^ field, "liq_" ^ field), cue_file_fields)
-    def normalize_file_tag(entry) =
-      let (key, value) = entry
-      key = string.case(key)
-      if list.assoc.mem(key, names) then
-        (list.assoc(key, names), value)
-      elsif not annotations and string.contains(prefix="liq_", key) then
-        null
-      else
-        entry
-      end
-    end
-    normalized = list.filter_map(normalize_file_tag, file_metadata)
-    if annotations then
-      native_controls = list.filter(fun (entry) -> list.mem(fst(entry), list.map(snd, names)), file_metadata)
-      list.fold(
-        fun (res, entry) -> if list.assoc.mem(fst(entry), res) then res else [...res, entry] end,
-        native_controls, normalized
-      )
+  names = list.map(fun (field) -> (tag_prefix ^ field, "autocue_" ^ field), cue_file_fields)
+  native_names = list.map(fun (field) -> ("liq_" ^ field, "autocue_" ^ field), cue_file_fields)
+  working_names = list.map(snd, names)
+  def normalize_file_tag(entry) =
+    let (key, value) = entry
+    key = if tag_prefix == "liq_" then key else string.case(key) end
+    if annotations and list.assoc.mem(fst(entry), native_names) then
+      (list.assoc(fst(entry), native_names), value)
+    elsif list.assoc.mem(key, names) then
+      (list.assoc(key, names), value)
+    elsif list.mem(key, working_names) then
+      null
+    elsif not annotations and tag_prefix != "liq_" and string.contains(prefix="liq_", key) then
+      null
     else
-      normalized
+      entry
     end
+  end
+  normalized = list.filter_map(normalize_file_tag, file_metadata)
+  if annotations then
+    native_controls = list.filter_map(fun (entry) ->
+      if list.assoc.mem(fst(entry), native_names) then
+        (list.assoc(fst(entry), native_names), snd(entry))
+      else null end, file_metadata)
+    list.fold(
+      fun (res, entry) -> if list.assoc.mem(fst(entry), res) then res else [...res, entry] end,
+      native_controls, normalized
+    )
+  else
+    normalized
   end
 end
 
 # Serialize only owned canonical fields into the selected external namespace.
 def cue_file_external_metadata(~tag_prefix, entries) =
-  names = list.map(fun (field) -> ("liq_" ^ field, tag_prefix ^ field), cue_file_fields)
+  names = list.map(fun (field) -> ("autocue_" ^ field, tag_prefix ^ field), cue_file_fields)
   list.map(fun (entry) -> (list.assoc(default=fst(entry), fst(entry), names), snd(entry)), entries)
 end
 
@@ -511,8 +517,8 @@ end
 # typed. Parse JSON values by type, then re-key known fields only. String
 # values (including paths/text containing prefix-like words) are never edited.
 def cue_file_json_response(~tag_prefix, response) =
-  if tag_prefix == "liq_" then response else
-    names = list.map(fun (field) -> (tag_prefix ^ field, "liq_" ^ field), cue_file_fields)
+  if tag_prefix == "autocue_" then response else
+    names = list.map(fun (field) -> (tag_prefix ^ field, "autocue_" ^ field), cue_file_fields)
     let json.parse (numbers : [(string * float?)] as json.object) = response
     let json.parse (strings : [(string * string?)] as json.object) = response
     let json.parse (booleans : [(string * bool?)] as json.object) = response
@@ -548,7 +554,10 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
   end
   file_metadata = cue_file_metadata(tag_prefix=tag_prefix, file_metadata)
   request_metadata = cue_file_metadata(tag_prefix=tag_prefix, annotations=true, request_metadata)
-  override_names = list.map(fun (field) -> (tag_prefix ^ field, "liq_" ^ field), cue_file_fields)
+  override_names = list.append(
+    list.map(fun (field) -> (tag_prefix ^ field, "autocue_" ^ field), cue_file_fields),
+    list.map(fun (field) -> ("liq_" ^ field, "autocue_" ^ field), cue_file_fields)
+  )
   ignored_overrides = list.map(
     fun (key) -> list.assoc(default=key, key, override_names),
     settings.autocue.cue_file.ignored_overrides()
@@ -595,12 +604,12 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
   meta = m()
 
   if
-    meta["liq_cue_file"] == "false"
+    meta["autocue_cue_file"] == "false"
   then
     log(
       level=2,
       label=label,
-      'Skipping cue_file for "#{filename}" because liq_cue_file=false \
+      'Skipping cue_file for "#{filename}" because #{tag_prefix}cue_file=false \
        forbids it.'
     )
     null
@@ -622,14 +631,14 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
     log(
       level=4,
       label=label,
-      'liq_blankskip=#{meta["liq_blankskip"]}, songtype=#{meta["songtype"]}, \
+      'autocue_blankskip=#{meta["autocue_blankskip"]}, songtype=#{meta["songtype"]}, \
        jingle_mode=#{meta["jingle_mode"]}'
     )
 
     # Blank skipping can be set globally using `settings.autocue.cue_file.blankskip`.
     # For AzuraCast, we override that setting if we detect "jingle_mode",
     # i.e. a track from a playlist that has "Hide Metadata from Listeners" set.
-    # For standalone Liquidsoap, the ultimate override is `liq_blankskip`.
+    # For standalone Liquidsoap, an annotated blankskip is the ultimate override.
     # This can even be used to switch blank skipping ON if is globally off.
     blankskip = ref(blankskip)
     blankskip := list.assoc.mem("jingle_mode", meta) ? 0.0 : blankskip()
@@ -641,19 +650,19 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
       end
     end
 
-    # Handle annotated `liq_blankskip`, the ultimate switch
+    # Handle the annotation after normalization to our working key.
     # Pre-v3.0.0 compatibility: Check for true/false (now float)
-    if list.assoc.mem("liq_blankskip", meta) then
+    if list.assoc.mem("autocue_blankskip", meta) then
       blankskip := null.get(
         default=0.0,
         something_to_float(
           true_value=settings.autocue.cue_file.blankskip(),
-          meta["liq_blankskip"]
+          meta["autocue_blankskip"]
         )
       )
-      m := list.assoc.remove("liq_blankskip", m())
+      m := list.assoc.remove("autocue_blankskip", m())
       m := list.add(
-        ("liq_blankskip", string.float(decimal_places=2, blankskip())),
+        ("autocue_blankskip", string.float(decimal_places=2, blankskip())),
         m()
       )
     end
@@ -787,42 +796,42 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
       let json.parse (
         {
           duration,
-          liq_cue_duration,
-          liq_cue_in,
-          liq_cue_out,
-          liq_cross_start_next,
-          liq_longtail,
-          liq_sustained_ending,
-          #liq_cross_duration,
-          liq_loudness,
-          liq_loudness_range,
-          liq_amplify,
-          liq_amplify_adjustment,
-          liq_reference_loudness,
-          liq_blankskip,
-          liq_blank_skipped,
-          liq_true_peak,
-          liq_true_peak_db
+          autocue_cue_duration,
+          autocue_cue_in,
+          autocue_cue_out,
+          autocue_cross_start_next,
+          autocue_longtail,
+          autocue_sustained_ending,
+          #autocue_cross_duration,
+          autocue_loudness,
+          autocue_loudness_range,
+          autocue_amplify,
+          autocue_amplify_adjustment,
+          autocue_reference_loudness,
+          autocue_blankskip,
+          autocue_blank_skipped,
+          autocue_true_peak,
+          autocue_true_peak_db
         }
       :
         {
           duration: float,
-          liq_cue_duration: float,
-          liq_cue_in: float,
-          liq_cue_out: float,
-          liq_cross_start_next: float,
-          liq_longtail: bool,
-          liq_sustained_ending: bool,
-          #liq_cross_duration: float,
-          liq_loudness: string,
-          liq_loudness_range: string,
-          liq_amplify: string,
-          liq_amplify_adjustment: string,
-          liq_reference_loudness: string,
-          liq_blankskip: float,
-          liq_blank_skipped: bool,
-          liq_true_peak: float,
-          liq_true_peak_db: string
+          autocue_cue_duration: float,
+          autocue_cue_in: float,
+          autocue_cue_out: float,
+          autocue_cross_start_next: float,
+          autocue_longtail: bool,
+          autocue_sustained_ending: bool,
+          #autocue_cross_duration: float,
+          autocue_loudness: string,
+          autocue_loudness_range: string,
+          autocue_amplify: string,
+          autocue_amplify_adjustment: string,
+          autocue_reference_loudness: string,
+          autocue_blankskip: float,
+          autocue_blank_skipped: bool,
+          autocue_true_peak: float,
+          autocue_true_peak_db: string
         }
       ) = cue_file_json_response(tag_prefix=tag_prefix, res)
 
@@ -830,37 +839,37 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
       result = ref(
         [
           ("duration", string(duration)),
-          ("liq_cue_duration", string(liq_cue_duration)),
-          ("liq_cue_in", string(liq_cue_in)),
-          ("liq_cue_out", string(liq_cue_out)),
-          ("liq_cross_start_next", string(liq_cross_start_next)),
-          ("liq_longtail", string(liq_longtail)),
-          ("liq_sustained_ending", string(liq_sustained_ending)),
-          #("liq_cross_duration", string(liq_cross_duration)),
-          ("liq_loudness", liq_loudness),
-          ("liq_loudness_range", liq_loudness_range),
-          ("liq_amplify", liq_amplify),
-          ("liq_amplify_adjustment", liq_amplify_adjustment),
-          ("liq_reference_loudness", liq_reference_loudness),
-          ("liq_blankskip", string(liq_blankskip)),
-          ("liq_blank_skipped", string(liq_blank_skipped)),
-          ("liq_true_peak", string(liq_true_peak)),
-          ("liq_true_peak_db", liq_true_peak_db)
+          ("autocue_cue_duration", string(autocue_cue_duration)),
+          ("autocue_cue_in", string(autocue_cue_in)),
+          ("autocue_cue_out", string(autocue_cue_out)),
+          ("autocue_cross_start_next", string(autocue_cross_start_next)),
+          ("autocue_longtail", string(autocue_longtail)),
+          ("autocue_sustained_ending", string(autocue_sustained_ending)),
+          #("autocue_cross_duration", string(autocue_cross_duration)),
+          ("autocue_loudness", autocue_loudness),
+          ("autocue_loudness_range", autocue_loudness_range),
+          ("autocue_amplify", autocue_amplify),
+          ("autocue_amplify_adjustment", autocue_amplify_adjustment),
+          ("autocue_reference_loudness", autocue_reference_loudness),
+          ("autocue_blankskip", string(autocue_blankskip)),
+          ("autocue_blank_skipped", string(autocue_blank_skipped)),
+          ("autocue_true_peak", string(autocue_true_peak)),
+          ("autocue_true_peak_db", autocue_true_peak_db)
         ]
       )
 
-      # `liq_cue_file` determines what happens now:
+      # `autocue_cue_file` determines what happens now:
       #   tag absent - normal handling, existing metadata preferred
       #   false - we'll never arrive here (don’t process, use existing metadata)
       #   true - cue_file metadata preferred (for news, time, etc.)
 
-      if meta["liq_cue_file"] == "" then
-        # no `liq_cue_file`, existing metadata preferred
+      if meta["autocue_cue_file"] == "" then
+        # no `autocue_cue_file`, existing metadata preferred
         log(
           level=4,
           label=label,
           'Existing metadata can override cue_file results \
-           (default; no liq_cue_file seen).'
+           (default; no #{tag_prefix}cue_file seen).'
         )
         result := list.fold(
           fun(res, entry) ->
@@ -876,13 +885,13 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
           m(),
           result()
         )
-      elsif meta["liq_cue_file"] == "true" then
-        # `liq_cue_file=true`, cue_file metadata preferred
+      elsif meta["autocue_cue_file"] == "true" then
+        # `autocue_cue_file=true`, cue_file metadata preferred
         log(
           level=3,
           label=label,
           'cue_file results override existing metadata \
-           because liq_cue_file=true tells us to.'
+           because #{tag_prefix}cue_file=true tells us to.'
         )
         result := list.fold(
           fun(res, entry) ->
@@ -920,31 +929,31 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
         (amp(), amp_correction())
       end
 
-      # Override liq_amplify, liq_amplify_adjustment & liq_reference_loudness,
+      # Override autocue_amplify, autocue_amplify_adjustment & autocue_reference_loudness,
       # using clipping prevention as requested
-      # liq_loudness & liq_true_peak_db are always in the cue_file result
+      # autocue_loudness & autocue_true_peak_db are always in the cue_file result
       let (amp, amp_correction) =
         amplify_correct(
           target,
-          list.assoc("liq_loudness", result()),
-          list.assoc("liq_true_peak_db", result()),
+          list.assoc("autocue_loudness", result()),
+          list.assoc("autocue_true_peak_db", result()),
           noclip
         )
-      result := list.assoc.remove("liq_amplify", result())
-      result := list.add(("liq_amplify", string.float(decimal_places=2, amp) ^ " dB"), result())
-      result := list.assoc.remove("liq_amplify_adjustment", result())
-      result := list.add(("liq_amplify_adjustment", string.float(decimal_places=2, amp_correction) ^ " dB"), result())
-      result := list.assoc.remove("liq_reference_loudness", result())
-      result := list.add(("liq_reference_loudness", string.float(decimal_places=2, target) ^ " LUFS"), result())
+      result := list.assoc.remove("autocue_amplify", result())
+      result := list.add(("autocue_amplify", string.float(decimal_places=2, amp) ^ " dB"), result())
+      result := list.assoc.remove("autocue_amplify_adjustment", result())
+      result := list.add(("autocue_amplify_adjustment", string.float(decimal_places=2, amp_correction) ^ " dB"), result())
+      result := list.assoc.remove("autocue_reference_loudness", result())
+      result := list.add(("autocue_reference_loudness", string.float(decimal_places=2, target) ^ " LUFS"), result())
 
       if settings.autocue.cue_file.unify_loudness_correction() then
         # We wish to avoid loudness jumps in all possible cases,
-        # so bring `replaygain_track_gain` and `liq_amplify` in line.
+        # so bring `replaygain_track_gain` and `autocue_amplify` in line.
         # NOTE: This also works for different loudness targets, if
         # files have been tagged with a valid replaygain_reference_loudness.
         if list.assoc.mem("replaygain_track_gain", result()) then
           if list.assoc.mem("replaygain_reference_loudness", result()) then
-            la = list.assoc(default="0.00 dB", "liq_amplify", result())
+            la = list.assoc(default="0.00 dB", "autocue_amplify", result())
             rg = list.assoc(default="0.00 dB", "replaygain_track_gain", result())
             rgf = make_float(rg)
             rgr = list.assoc(default=string.float(decimal_places=2, target)^" dB", "replaygain_reference_loudness", result())
@@ -957,7 +966,7 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
             # we can safely do that since we NEVER write back replaygain_* tags
             # Clipping prevention wins over simple RG adjusting
             if noclip then
-              # override replaygain_track_gain with already calculated liq_amplify
+              # override replaygain_track_gain with already calculated autocue_amplify
               result := list.assoc.remove("replaygain_track_gain", result())
               result := list.add(("replaygain_track_gain", la), result())
               rg = string.float(decimal_places=2, rgf + (target - rgrf())) ^ " dB"
@@ -967,24 +976,24 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
               rg = string.float(decimal_places=2, rgf + (target - rgrf())) ^ " dB"
               result := list.assoc.remove("replaygain_track_gain", result())
               result := list.add(("replaygain_track_gain", rg), result())
-              # Set liq_amplify to the same value
-              result := list.assoc.remove("liq_amplify", result())
-              result := list.add(("liq_amplify", rg), result())
-              # And reset liq_amplify_adjustment
-              result := list.assoc.remove("liq_amplify_adjustment", result())
-              result := list.add(("liq_amplify_adjustment", "0.00 dB"), result())
-              log(level=3, label=label, 'Replaced liq_amplify=#{la} with #{rg} from adjusted replaygain_track_gain')
+              # Set autocue_amplify to the same value
+              result := list.assoc.remove("autocue_amplify", result())
+              result := list.add(("autocue_amplify", rg), result())
+              # And reset autocue_amplify_adjustment
+              result := list.assoc.remove("autocue_amplify_adjustment", result())
+              result := list.add(("autocue_amplify_adjustment", "0.00 dB"), result())
+              log(level=3, label=label, 'Replaced autocue_amplify=#{la} with #{rg} from adjusted replaygain_track_gain')
             end
             # set replaygain_reference_loudness to new target
             rgr = string.float(decimal_places=2, target) ^ " LUFS"
             result := list.assoc.remove("replaygain_reference_loudness", result())
             result := list.add(("replaygain_reference_loudness", rgr), result())
           else
-            log(level=3, label=label, "Can't override liq_amplify from replaygain_track_gain, replaygain_reference_loudness missing.")
+            log(level=3, label=label, "Can't override autocue_amplify from replaygain_track_gain, replaygain_reference_loudness missing.")
           end
         else
-          # no `replaygain_track_gain` seen? insert one, using calculated `liq_amplify`
-          rg = list.assoc(default="0.00 dB", "liq_amplify", result())
+          # no `replaygain_track_gain` seen? insert one, using calculated `autocue_amplify`
+          rg = list.assoc(default="0.00 dB", "autocue_amplify", result())
           result := list.add(("replaygain_track_gain", rg), result())
           # also insert a `replaygain_reference_loudness`
           rgr = string.float(decimal_places=2, target) ^ " LUFS"
@@ -998,39 +1007,39 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
       # metadata is read separately inside the provider. Preserve its explicit
       # gain here too, after calculating the provider's normal loudness result.
       keep_amplify =
-        settings.autocue.amplify_behavior() == "keep" and meta["liq_amplify"] != ""
+        settings.autocue.amplify_behavior() == "keep" and meta["autocue_amplify"] != ""
       if keep_amplify then
-        gain = meta["liq_amplify"]
-        reference = list.assoc(default=list.assoc("liq_reference_loudness", result()), "liq_reference_loudness", meta)
-        result := list.add(("liq_amplify", gain), list.assoc.remove("liq_amplify", result()))
-        result := list.add(("liq_reference_loudness", reference), list.assoc.remove("liq_reference_loudness", result()))
-        adjustment = list.assoc(default="0.00 dB", "liq_amplify_adjustment", meta)
-        result := list.add(("liq_amplify_adjustment", adjustment), list.assoc.remove("liq_amplify_adjustment", result()))
+        gain = meta["autocue_amplify"]
+        reference = list.assoc(default=list.assoc("autocue_reference_loudness", result()), "autocue_reference_loudness", meta)
+        result := list.add(("autocue_amplify", gain), list.assoc.remove("autocue_amplify", result()))
+        result := list.add(("autocue_reference_loudness", reference), list.assoc.remove("autocue_reference_loudness", result()))
+        adjustment = list.assoc(default="0.00 dB", "autocue_amplify_adjustment", meta)
+        result := list.add(("autocue_amplify_adjustment", adjustment), list.assoc.remove("autocue_amplify_adjustment", result()))
         if settings.autocue.cue_file.unify_loudness_correction() then
           result := list.add(("replaygain_track_gain", gain), list.assoc.remove("replaygain_track_gain", result()))
           result := list.add(("replaygain_reference_loudness", reference), list.assoc.remove("replaygain_reference_loudness", result()))
         end
-        log(level=3, label=label, "Keeping user-provided liq_amplify=#{gain} (amplify_behavior=keep).")
+        log(level=3, label=label, "Keeping user-provided autocue_amplify=#{gain} (amplify_behavior=keep).")
       end
 
       # Show only clipping prevention adjustments made for the provider's gain.
-      amp_correction_dB = list.assoc(default="0.00 dB", "liq_amplify_adjustment", result())
+      amp_correction_dB = list.assoc(default="0.00 dB", "autocue_amplify_adjustment", result())
       if noclip and not keep_amplify and amp_correction_dB != "0.00 dB" then
         log(
           level=3,
           label=label,
-          'Clipping prevention: Adjusted liq_amplify by #{amp_correction_dB} \
-           because track’s true peak is #{list.assoc("liq_true_peak_db", result())}.'
+          'Clipping prevention: Adjusted autocue_amplify by #{amp_correction_dB} \
+           because track’s true peak is #{list.assoc("autocue_true_peak_db", result())}.'
         )
       end
 
       # Adjust fades and cue-out, if necessary
-      liq_cue_in = float_of_string(list.assoc("liq_cue_in", result()))
-      liq_cue_out = float_of_string(list.assoc("liq_cue_out", result()))
-      liq_cross_start_next = float_of_string(list.assoc("liq_cross_start_next", result()))
-      liq_fade_in =
+      autocue_cue_in = float_of_string(list.assoc("autocue_cue_in", result()))
+      autocue_cue_out = float_of_string(list.assoc("autocue_cue_out", result()))
+      autocue_cross_start_next = float_of_string(list.assoc("autocue_cross_start_next", result()))
+      autocue_fade_in =
         try
-          float_of_string(list.assoc("liq_fade_in", result()))
+          float_of_string(list.assoc("autocue_fade_in", result()))
         catch _ do
           log(
             level=3,
@@ -1041,9 +1050,9 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
           settings.autocue.cue_file.fade_in()
         end
 
-      liq_fade_out =
+      autocue_fade_out =
         try
-          float_of_string(list.assoc("liq_fade_out", result()))
+          float_of_string(list.assoc("autocue_fade_out", result()))
         catch _ do
           log(
             level=3,
@@ -1055,20 +1064,20 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
         end
 
       # User might have set cue-out but not start_next, correct
-      liq_cross_start_next =
-        if liq_cross_start_next <= liq_cue_out
+      autocue_cross_start_next =
+        if autocue_cross_start_next <= autocue_cue_out
         then
-          liq_cross_start_next
+          autocue_cross_start_next
         else
-          start_next = liq_cue_out - liq_fade_out
-          if start_next > liq_cue_in
+          start_next = autocue_cue_out - autocue_fade_out
+          if start_next > autocue_cue_in
           then
             # we have enough room for the fade-out
             log(
               level=3,
               label=label,
-              "Given liq_cross_start_next (#{liq_cross_start_next} s) > \
-               cue-out point (#{liq_cue_out} s), set to #{start_next} s."
+              "Given autocue_cross_start_next (#{autocue_cross_start_next} s) > \
+               cue-out point (#{autocue_cue_out} s), set to #{start_next} s."
             )
             start_next
           else
@@ -1076,93 +1085,93 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
             log(
               level=3,
               label=label,
-              "Given liq_cross_start_next (#{liq_cross_start_next} s) > \
-               cue-out point (#{liq_cue_out} s), set to #{liq_cue_out} s."
+              "Given autocue_cross_start_next (#{autocue_cross_start_next} s) > \
+               cue-out point (#{autocue_cue_out} s), set to #{autocue_cue_out} s."
             )
-            liq_cue_out
+            autocue_cue_out
           end
         end
 
       # Adjust cue_out according to user-supplied fade_out
-      let (liq_fade_out, liq_cue_out) =
+      let (autocue_fade_out, autocue_cue_out) =
         if
-          liq_cross_start_next + liq_fade_out < liq_cue_out
+          autocue_cross_start_next + autocue_fade_out < autocue_cue_out
         then
-          overlay_duration = liq_cue_out - liq_cross_start_next
+          overlay_duration = autocue_cue_out - autocue_cross_start_next
           # Allow sub-microsecond arithmetic noise at inclusive boundaries.
           if
-            extend_fade_out and liq_fade_out > 0.0 and
-            overlay_duration - liq_fade_out + 0.000001 >= extension_threshold and
+            extend_fade_out and autocue_fade_out > 0.0 and
+            overlay_duration - autocue_fade_out + 0.000001 >= extension_threshold and
             overlay_duration <= extension_max + 0.000001
           then
             log(
               level=3,
               label=label,
-              "Extending fade-out from #{liq_fade_out} s to #{overlay_duration} s; \
-               preserving start_next=#{liq_cross_start_next} s and cue_out=#{liq_cue_out} s."
+              "Extending fade-out from #{autocue_fade_out} s to #{overlay_duration} s; \
+               preserving start_next=#{autocue_cross_start_next} s and cue_out=#{autocue_cue_out} s."
             )
-            (overlay_duration, liq_cue_out)
+            (overlay_duration, autocue_cue_out)
           else
-            cue_out = liq_cross_start_next + liq_fade_out
+            cue_out = autocue_cross_start_next + autocue_fade_out
             log(
               level=3,
               label=label,
-              "Given fade-out (#{liq_fade_out} s) < \
+              "Given fade-out (#{autocue_fade_out} s) < \
                overlay duration (#{overlay_duration} s), moving cue-out point \
-               from #{liq_cue_out} s to #{cue_out} s."
+               from #{autocue_cue_out} s to #{cue_out} s."
             )
-            (liq_fade_out, cue_out)
+            (autocue_fade_out, cue_out)
           end
         else
-          fade_out = liq_cue_out - liq_cross_start_next
-          if liq_cross_start_next + liq_fade_out > liq_cue_out then
+          fade_out = autocue_cue_out - autocue_cross_start_next
+          if autocue_cross_start_next + autocue_fade_out > autocue_cue_out then
             log(
               level=2,
               label=label,
-              "Given fade-out duration (#{liq_fade_out} s) exceeds \
+              "Given fade-out duration (#{autocue_fade_out} s) exceeds \
                available time, using #{fade_out} s."
             )
           end
-          (fade_out, liq_cue_out)
+          (fade_out, autocue_cue_out)
         end
 
       # Check for invalid fade.in
-      let liq_fade_in =
+      let autocue_fade_in =
         if
-          liq_fade_in < liq_cue_out - liq_cue_in
+          autocue_fade_in < autocue_cue_out - autocue_cue_in
         then
-          liq_fade_in
+          autocue_fade_in
         else
           log(
             level=2,
             label=label,
-            "Given fade-in duration (#{liq_fade_in} s) exceeds \
+            "Given fade-in duration (#{autocue_fade_in} s) exceeds \
              available time, using 0.1 s."
           )
           0.1
         end
 
-      # correct `liq_cue_duration`
-      liq_cue_duration = liq_cue_out - liq_cue_in
-      result := list.assoc.remove("liq_cue_duration", result())
-      result := list.add(("liq_cue_duration",
-        string.float(decimal_places=2, liq_cue_duration)), result())
+      # correct `autocue_cue_duration`
+      autocue_cue_duration = autocue_cue_out - autocue_cue_in
+      result := list.assoc.remove("autocue_cue_duration", result())
+      result := list.add(("autocue_cue_duration",
+        string.float(decimal_places=2, autocue_cue_duration)), result())
 
       # Update result
-      result := list.assoc.remove("liq_cue_out", result())
-      result := list.add(("liq_cue_out", string(liq_cue_out)), result())
-      result := list.assoc.remove("liq_cross_start_next", result())
-      result := list.add(("liq_cross_start_next", string(liq_cross_start_next)), result())
-      result := list.assoc.remove("liq_fade_in", result())
-      result := list.add(("liq_fade_in", string(liq_fade_in)), result())
-      result := list.assoc.remove("liq_fade_out", result())
-      result := list.add(("liq_fade_out", string(liq_fade_out)), result())
+      result := list.assoc.remove("autocue_cue_out", result())
+      result := list.add(("autocue_cue_out", string(autocue_cue_out)), result())
+      result := list.assoc.remove("autocue_cross_start_next", result())
+      result := list.add(("autocue_cross_start_next", string(autocue_cross_start_next)), result())
+      result := list.assoc.remove("autocue_fade_in", result())
+      result := list.add(("autocue_fade_in", string(autocue_fade_in)), result())
+      result := list.assoc.remove("autocue_fade_out", result())
+      result := list.add(("autocue_fade_out", string(autocue_fade_out)), result())
 
       # now remove everything that’s not autocue-relevant
       # so we don’t blow up decoder and annotation metadata
       def fl(k, _) =
         tags = ["duration", "replaygain_track_gain", "replaygain_reference_loudness"]
-        string.contains(prefix="liq_", k) or list.mem(k, tags)
+        string.contains(prefix="autocue_", k) or list.mem(k, tags)
       end
       result := list.assoc.filter((fl), result())
 
@@ -1183,17 +1192,17 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
       extra_metadata =
         [
           ("duration", list.assoc("duration", result())),
-          ("liq_amplify_adjustment", list.assoc("liq_amplify_adjustment", result())),
-          ("liq_cue_duration", list.assoc("liq_cue_duration", result())),
-          ("liq_longtail", list.assoc("liq_longtail", result())),
-          ("liq_sustained_ending", list.assoc("liq_sustained_ending", result())),
-          ("liq_loudness", list.assoc("liq_loudness", result())),
-          ("liq_loudness_range", list.assoc("liq_loudness_range", result())),
-          ("liq_reference_loudness", list.assoc("liq_reference_loudness", result())),
-          ("liq_blankskip", list.assoc("liq_blankskip", result())),
-          ("liq_blank_skipped", list.assoc("liq_blank_skipped", result())),
-          ("liq_true_peak", list.assoc("liq_true_peak", result())),
-          ("liq_true_peak_db", list.assoc("liq_true_peak_db", result())),
+          ("autocue_amplify_adjustment", list.assoc("autocue_amplify_adjustment", result())),
+          ("autocue_cue_duration", list.assoc("autocue_cue_duration", result())),
+          ("autocue_longtail", list.assoc("autocue_longtail", result())),
+          ("autocue_sustained_ending", list.assoc("autocue_sustained_ending", result())),
+          ("autocue_loudness", list.assoc("autocue_loudness", result())),
+          ("autocue_loudness_range", list.assoc("autocue_loudness_range", result())),
+          ("autocue_reference_loudness", list.assoc("autocue_reference_loudness", result())),
+          ("autocue_blankskip", list.assoc("autocue_blankskip", result())),
+          ("autocue_blank_skipped", list.assoc("autocue_blank_skipped", result())),
+          ("autocue_true_peak", list.assoc("autocue_true_peak", result())),
+          ("autocue_true_peak_db", list.assoc("autocue_true_peak_db", result())),
           ...optional_meta("replaygain_track_gain", result()),
           ...optional_meta("replaygain_track_peak", result()),
           ...optional_meta("replaygain_track_range", result()),
@@ -1203,12 +1212,12 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
       {
         # Export gain only here: a duplicate in extra_metadata would bypass
         # Liquidsoap's keep/override/ignore policy for user-provided gain.
-        amplify = list.assoc("liq_amplify", result()),
-        cue_in = float_of_string(list.assoc("liq_cue_in", result())),
-        cue_out = float_of_string(list.assoc("liq_cue_out", result())),
-        fade_in = float_of_string(list.assoc("liq_fade_in", result())),
-        fade_out = float_of_string(list.assoc("liq_fade_out", result())),
-        start_next = float_of_string(list.assoc("liq_cross_start_next", result())),
+        amplify = list.assoc("autocue_amplify", result()),
+        cue_in = float_of_string(list.assoc("autocue_cue_in", result())),
+        cue_out = float_of_string(list.assoc("autocue_cue_out", result())),
+        fade_in = float_of_string(list.assoc("autocue_fade_in", result())),
+        fade_out = float_of_string(list.assoc("autocue_fade_out", result())),
+        start_next = float_of_string(list.assoc("autocue_cross_start_next", result())),
         extra_metadata=cue_file_external_metadata(tag_prefix=tag_prefix, extra_metadata)
       }
     else
@@ -1284,7 +1293,7 @@ decoder.metadata.add(
 # settings.autocue.cue_file.noclip := false  # clipping prevention like loudgain's `-k`
 # settings.autocue.cue_file.blankskip := 0.0  # skip silence in tracks
 # settings.autocue.cue_file.unify_loudness_correction := true  # unify `replaygain_track_gain` & `liq_amplify`
-# settings.autocue.cue_file.write_tags := false  # write liq_* tags back to file
+# settings.autocue.cue_file.write_tags := false  # write selected-prefix tags back to file
 # settings.autocue.cue_file.write_replaygain := false  # write ReplayGain tags back to file
 # settings.autocue.cue_file.force_analysis := false  # force re-analysis even if tags found
 # settings.autocue.cue_file.nice := false  # Linux/MacOS only: Use NI=18 for analysis
