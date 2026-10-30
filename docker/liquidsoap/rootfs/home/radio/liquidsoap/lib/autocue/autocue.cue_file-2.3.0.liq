@@ -1,5 +1,6 @@
 # autocue.cue_file.liq
 # Liquidsoap 2.5 branch maintained by Stefan (gAlleb).
+# 2026-10-30 - Stefan (gAlleb): Use the selected prefix for annotations and JSON.
 # 2026-10-30 - Stefan (gAlleb): Add optional bounded fade-out extension.
 # 2026-10-30 - Stefan (gAlleb): Preserve explicit file gain in keep mode.
 # 2026-10-30 - Stefan (gAlleb): Export gain once so amplify_behavior is respected.
@@ -94,9 +95,9 @@ let settings.autocue.cue_file.path =
 let settings.autocue.cue_file.tag_prefix =
   settings.make(
     description=
-      "Prefix of autocue tags stored in audio files. Use e.g. ac_ for new \
-       libraries; liq_ preserves legacy tagging. Internal Liquidsoap metadata \
-       and request annotations keep their canonical names.",
+      "Prefix of autocue file tags, request annotations and Python JSON keys. \
+       Use e.g. ac_ for new libraries; liq_ preserves legacy interfaces. \
+       Liquidsoap's generated control metadata retains its native names.",
     "liq_"
   )
 
@@ -426,33 +427,77 @@ def check_autocue_setup(~shutdown=false, ~print=false) =
 end
 
 
-# Normalize file tags before merging request annotations. Never mix fields
-# from the selected file namespace with legacy liq_* measurements.
-def cue_file_metadata(~tag_prefix, file_metadata) =
+cue_file_fields = [
+  "amplify_adjustment", "amplify", "blankskip", "blank_skipped",
+  "cross_duration", "cross_start_next", "cue_duration", "cue_file",
+  "cue_in", "cue_out", "fade_in", "fade_out", "longtail", "loudness",
+  "loudness_range", "reference_loudness", "sustained_ending",
+  "true_peak_db", "true_peak", "hook1_in", "hook1_out", "hook2_in",
+  "hook2_out", "hook3_in", "hook3_out", "ramp1", "ramp2", "ramp3"
+]
+
+# Normalize the selected namespace before merging. Native request controls
+# remain valid and take precedence over aliases; custom files never backfill
+# missing measurements from legacy liq_* tags.
+def cue_file_metadata(~tag_prefix, ~annotations=false, file_metadata) =
   if tag_prefix == "liq_" then
     file_metadata
   else
-    fields = [
-      "amplify_adjustment", "amplify", "blankskip", "blank_skipped",
-      "cross_duration", "cross_start_next", "cue_duration", "cue_file",
-      "cue_in", "cue_out", "fade_in", "fade_out", "longtail", "loudness",
-      "loudness_range", "reference_loudness", "sustained_ending",
-      "true_peak_db", "true_peak", "hook1_in", "hook1_out", "hook2_in",
-      "hook2_out", "hook3_in", "hook3_out", "ramp1", "ramp2", "ramp3"
-    ]
-    names = list.map(fun (field) -> (tag_prefix ^ field, "liq_" ^ field), fields)
+    names = list.map(fun (field) -> (tag_prefix ^ field, "liq_" ^ field), cue_file_fields)
     def normalize_file_tag(entry) =
       let (key, value) = entry
       key = string.case(key)
       if list.assoc.mem(key, names) then
         (list.assoc(key, names), value)
-      elsif string.contains(prefix="liq_", key) then
+      elsif not annotations and string.contains(prefix="liq_", key) then
         null
       else
         entry
       end
     end
-    list.filter_map(normalize_file_tag, file_metadata)
+    normalized = list.filter_map(normalize_file_tag, file_metadata)
+    if annotations then
+      native_controls = list.filter(fun (entry) -> list.mem(fst(entry), list.map(snd, names)), file_metadata)
+      list.fold(
+        fun (res, entry) -> if list.assoc.mem(fst(entry), res) then res else [...res, entry] end,
+        native_controls, normalized
+      )
+    else
+      normalized
+    end
+  end
+end
+
+# Serialize only owned canonical fields into the selected external namespace.
+def cue_file_external_metadata(~tag_prefix, entries) =
+  names = list.map(fun (field) -> ("liq_" ^ field, tag_prefix ^ field), cue_file_fields)
+  list.map(fun (entry) -> (list.assoc(default=fst(entry), fst(entry), names), snd(entry)), entries)
+end
+
+# JSON keys are dynamic, while the calculation record below is statically
+# typed. Parse JSON values by type, then re-key known fields only. String
+# values (including paths/text containing prefix-like words) are never edited.
+def cue_file_json_response(~tag_prefix, response) =
+  if tag_prefix == "liq_" then response else
+    names = list.map(fun (field) -> (tag_prefix ^ field, "liq_" ^ field), cue_file_fields)
+    let json.parse (numbers : [(string * float?)] as json.object) = response
+    let json.parse (strings : [(string * string?)] as json.object) = response
+    let json.parse (booleans : [(string * bool?)] as json.object) = response
+    data = json.object()
+    data.add("duration", null.get(list.assoc("duration", numbers)))
+    list.iter(fun (entry) ->
+      if list.assoc.mem(fst(entry), names) and null.defined(snd(entry)) then
+        data.add(list.assoc(fst(entry), names), null.get(snd(entry)))
+      end, numbers)
+    list.iter(fun (entry) ->
+      if list.assoc.mem(fst(entry), names) and null.defined(snd(entry)) then
+        data.add(list.assoc(fst(entry), names), null.get(snd(entry)))
+      end, strings)
+    list.iter(fun (entry) ->
+      if list.assoc.mem(fst(entry), names) and null.defined(snd(entry)) then
+        data.add(list.assoc(fst(entry), names), null.get(snd(entry)))
+      end, booleans)
+    json.stringify(compact=true, data)
   end
 end
 
@@ -463,7 +508,18 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
   if not string.match(pattern="^[a-z_][a-z0-9_.-]*$", tag_prefix) then
     error.raise(error.invalid, "Invalid cue_file tag_prefix: #{tag_prefix}")
   end
+  standard_names = ["duration", "replaygain_reference_loudness", "replaygain_track_gain",
+    "replaygain_track_peak", "replaygain_track_range", "r128_track_gain"]
+  if list.exists(fun (field) -> list.mem(tag_prefix ^ field, standard_names), cue_file_fields) then
+    error.raise(error.invalid, "cue_file tag_prefix collides with standard metadata names: #{tag_prefix}")
+  end
   file_metadata = cue_file_metadata(tag_prefix=tag_prefix, file_metadata)
+  request_metadata = cue_file_metadata(tag_prefix=tag_prefix, annotations=true, request_metadata)
+  override_names = list.map(fun (field) -> (tag_prefix ^ field, "liq_" ^ field), cue_file_fields)
+  ignored_overrides = list.map(
+    fun (key) -> list.assoc(default=key, key, override_names),
+    settings.autocue.cue_file.ignored_overrides()
+  )
   timeout = settings.autocue.cue_file.timeout()
   target = settings.autocue.cue_file.target()
   silence = settings.autocue.cue_file.silence()
@@ -623,7 +679,7 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
     if use_json_metadata then
       # write metadata to temp file for cue_file to pick up
       tempfile := file.temp("cue_file", ".json")
-      json_meta = meta_json_stringify(compact=true, m())
+      json_meta = meta_json_stringify(compact=true, cue_file_external_metadata(tag_prefix=tag_prefix, m()))
       log(level=4, label=label, "Writing metadata to #{tempfile()}: #{json_meta}")
       log(level=3, label=label, "Writing metadata to #{tempfile()}")
       file.write(
@@ -728,7 +784,7 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
           liq_true_peak: float,
           liq_true_peak_db: string
         }
-      ) = res
+      ) = cue_file_json_response(tag_prefix=tag_prefix, res)
 
       # must stringify, because metadata & annotations are strings
       result = ref(
@@ -769,7 +825,7 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
         result := list.fold(
           fun(res, entry) ->
             if list.assoc.mem(fst(entry), res) then
-              if list.mem(fst(entry), settings.autocue.cue_file.ignored_overrides()) then
+              if list.mem(fst(entry), ignored_overrides) then
                 [...list.assoc.remove(fst(entry), res), entry]  # take cue_file result
               else
                 res  # take existing metadata (meta)
@@ -1113,7 +1169,7 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
         fade_in = float_of_string(list.assoc("liq_fade_in", result())),
         fade_out = float_of_string(list.assoc("liq_fade_out", result())),
         start_next = float_of_string(list.assoc("liq_cross_start_next", result())),
-        extra_metadata=extra_metadata
+        extra_metadata=cue_file_external_metadata(tag_prefix=tag_prefix, extra_metadata)
       }
     else
       log(
@@ -1134,6 +1190,34 @@ settings.autocue.amplify_behavior := "keep"
 # avoid dead air from reconcile, reset default 3.0s to our fade_out duration
 #settings.autocue.target_cross_duration := settings.autocue.cue_file.fade_out()
 autocue.register(name="cue_file", cue_file)
+
+# A custom amplify annotation is user input, just like native liq_amplify.
+# Core's keep/ignore logic sees only native request names. Translate this
+# annotation after that policy so it is not lost (also when a ReplayGain alias
+# is present). No analysis or file lookup is performed by this resolver.
+def cue_file_annotation_gain(~metadata:annotations, _) =
+  prefix = string.case(settings.autocue.cue_file.tag_prefix())
+  if prefix == "liq_" or settings.autocue.preferred() != "cue_file" then [] else
+    mode = settings.autocue.amplify_behavior()
+    custom = list.filter(fun (entry) -> string.case(fst(entry)) == prefix ^ "amplify", annotations)
+    has_native = list.exists(fun (entry) -> fst(entry) == "liq_amplify", annotations)
+    if custom != [] and not has_native and (mode == "keep" or mode == "ignore") then
+      gain = snd(list.hd(custom))
+      if mode == "keep" and settings.autocue.cue_file.unify_loudness_correction() then
+        [("liq_amplify", gain), ("replaygain_track_gain", gain)]
+      else
+        [("liq_amplify", gain)]
+      end
+    else [] end
+  end
+end
+
+decoder.metadata.add(
+  priority={settings.autocue.metadata.priority() + 1},
+  reentrant=true,
+  "cue_file.annotation_gain",
+  cue_file_annotation_gain
+)
 
 # --- Copy-paste Azuracast LS Config, second input box END ---
 

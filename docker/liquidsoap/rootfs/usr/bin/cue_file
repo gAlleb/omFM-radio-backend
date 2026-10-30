@@ -3,6 +3,7 @@
 
 # cue_file
 # Liquidsoap 2.5 branch maintained by Stefan (gAlleb).
+# 2026-10-30 Stefan (gAlleb) - Apply the selected prefix to JSON as well as files.
 # 2026-10-30 Stefan (gAlleb) - Honor liq_cue_file=true consistently for JSON,
 #                            including cached tags and forced analysis.
 # 2026-10-30 Stefan (gAlleb) - Add configurable file tag prefixes; keep the
@@ -297,8 +298,8 @@ def remove_suffix(tags):
 def convert_tags(tags, tag_prefix="liq_"):
     items = tags.items()
 
-    # File namespaces are translated at the boundary. JSON overrides use the
-    # default canonical namespace, regardless of the selected file prefix.
+    # External file/JSON namespaces are translated at the boundary; private
+    # calculation keys remain canonical so the analysis itself is unchanged.
     names = {
         tag_prefix + k[4:] if k.startswith("liq_") else k: k
         for k in tags_to_check
@@ -314,23 +315,30 @@ def convert_tags(tags, tag_prefix="liq_"):
 
     return tags
 
-def prefer_cue_file(tags, tags_json):
+def external_tags(tags, tag_prefix="liq_"):
+    return {
+        tag_prefix + k[4:] if k in tags_to_check and k.startswith("liq_") else k: v
+        for k, v in tags.items()
+    }
+
+
+def prefer_cue_file(tags, tags_json, tag_prefix="liq_"):
     # An explicit request flag takes precedence over the selected file flag,
     # just as request metadata takes precedence in the Liquidsoap adapter.
     control = convert_tags({
-        k: v for k, v in tags_json.items() if k.lower() == "liq_cue_file"
-    })
+        k: v for k, v in tags_json.items() if k.lower() == tag_prefix + "cue_file"
+    }, tag_prefix=tag_prefix)
     return control.get("liq_cue_file", tags.get("liq_cue_file", False))
 
 
 # Override a typed result, keeping the original preference across analysis
 # (analyse() returns measurements, without the source's control flag).
-def override_from_JSON(tags, tags_json={}, prefer_file=None):
+def override_from_JSON(tags, tags_json={}, prefer_file=None, tag_prefix="liq_"):
     if prefer_file is None:
-        prefer_file = prefer_cue_file(tags, tags_json)
+        prefer_file = prefer_cue_file(tags, tags_json, tag_prefix=tag_prefix)
     if prefer_file:
         return tags
-    return {**tags, **convert_tags(tags_json)}
+    return {**tags, **convert_tags(tags_json, tag_prefix=tag_prefix)}
 
 
 def read_tags(
@@ -380,8 +388,9 @@ def read_tags(
     tags_in_stream = convert_tags(stream_tags, tag_prefix=tag_prefix)
     tags_in_format = convert_tags(format_tags, tag_prefix=tag_prefix)
     tags_found = {**tags_in_stream, **tags_in_format}
-    prefer_file = prefer_cue_file(tags_found, tags_json)
-    tags_found = override_from_JSON(tags_found, tags_json, prefer_file=prefer_file)
+    prefer_file = prefer_cue_file(tags_found, tags_json, tag_prefix=tag_prefix)
+    tags_found = override_from_JSON(
+        tags_found, tags_json, prefer_file=prefer_file, tag_prefix=tag_prefix)
     if prefer_file:
         tags_found["liq_cue_file"] = True
     # eprint(json.dumps(tags_found, indent=2, sort_keys=True))
@@ -957,10 +966,7 @@ def write_tags(filename, tags={}, replaygain=False, tag_prefix="liq_"):
             del tags_new["duration"]
 
         # Preserve units and precision, renaming only the prepared autocue keys.
-        tags_new = {
-            tag_prefix + k[4:] if k.startswith("liq_") else k: v
-            for k, v in tags_new.items()
-        }
+        tags_new = external_tags(tags_new, tag_prefix)
 
         # eprint(replaygain, temp, json.dumps(tags_new, indent=2))
 
@@ -1140,6 +1146,10 @@ def parse_tag_prefix(value):
         raise argparse.ArgumentTypeError(
             "tag prefix must start with a letter or underscore and contain "
             "only letters, digits, underscores, dots or hyphens")
+    names = {value + k[4:] for k in tags_to_check if k.startswith("liq_")}
+    standard = {k for k in tags_to_check if not k.startswith("liq_")}
+    if names & standard:
+        raise argparse.ArgumentTypeError("tag prefix collides with standard metadata names")
     return value
 
 
@@ -1147,9 +1157,9 @@ parser.add_argument(
     "--tag-prefix",
     type=parse_tag_prefix,
     default="liq_",
-    help="Prefix for reading/writing autocue tags in audio files. Use a "
+    help="Prefix for autocue file tags and JSON input/output keys. Use a "
     "custom prefix such as ac_ for new libraries; liq_ preserves legacy "
-    "tagging. JSON and ReplayGain names are unchanged.")
+    "tagging. ReplayGain/R128 and duration names are unchanged.")
 parser.add_argument(
     "-t",
     "--target",
@@ -1305,7 +1315,8 @@ if analysis_performed:
     # allow to override even the analysis results (not if `liq_cue_file=true`)
     if args.json:
         result = override_from_JSON(
-            result, tags_json, prefer_file=diagnostics["prefer_file"])
+            result, tags_json, prefer_file=diagnostics["prefer_file"],
+            tag_prefix=args.tag_prefix)
     # override duration, seems ffprobe can be more exact
     if "duration" in tags_found:
         result["duration"] = tags_found["duration"]
@@ -1319,6 +1330,11 @@ if args.write:
 
 # prepare JSON result
 # we use "dB" instead of "LU" units, because LS & others don’t understand "LU"
+if args.tag_prefix != "liq_":
+    analysis_reason = re.sub(
+        r"\bliq_[a-z0-9_]+\b",
+        lambda m: args.tag_prefix + m[0][4:] if m[0] in tags_to_check else m[0],
+        analysis_reason)
 liq_result = {
     # Runtime diagnostics only; never written to the audio file's tags.
     "analysis": {"performed": analysis_performed, "reason": analysis_reason},
@@ -1342,5 +1358,5 @@ liq_result = {
 }
 
 # output compact (one line) JSON, for use in Liquidsoap "autocue:" protocol
-json_output = json.dumps(liq_result)
+json_output = json.dumps(external_tags(liq_result, args.tag_prefix))
 print(json_output)
