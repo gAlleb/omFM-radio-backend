@@ -2,6 +2,7 @@
 # encoding: utf-8
 
 # cue_file
+# 2026-10-30 Stefan (gAlleb) - Release 5.0.2 with private autocue_* working keys.
 # 2026-10-30 Stefan (gAlleb) - Use autocue_* for internal working keys.
 # Maintained by Stefan (gAlleb); tested with Liquidsoap 2.4.5 and 2.5.
 # 2026-10-30 Stefan (gAlleb) - Release 5.0.1 with tool paths and optional helper fixes.
@@ -90,7 +91,7 @@
 
 __author__ = 'Matthias C. Hormann; Stefan (gAlleb)'
 __maintainer__ = 'Stefan (gAlleb)'
-__version__ = '5.0.1'
+__version__ = '5.0.2'
 
 import os
 import sys
