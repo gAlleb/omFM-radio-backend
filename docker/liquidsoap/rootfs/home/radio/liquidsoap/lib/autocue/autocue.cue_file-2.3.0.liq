@@ -345,7 +345,7 @@ def file_semver(command) =
   semver(res)
 end
 
-# Check Autocue setup, shutdown if desired, print to terminal if desired
+# Check autocue setup, shutdown if desired, print to terminal if desired
 stdlib_shutdown = shutdown
 stdlib_print = print
 
