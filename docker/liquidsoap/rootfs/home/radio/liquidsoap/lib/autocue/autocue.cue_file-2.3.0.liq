@@ -1,5 +1,6 @@
 # autocue.cue_file.liq
 # Maintained by Stefan (gAlleb); tested with Liquidsoap 2.4.5 and 2.5.
+# 2026-10-30 - Stefan (gAlleb): Release 5.0.1 with tool paths and optional helper fixes.
 # 2026-10-30 - Stefan (gAlleb): Configure FFmpeg/FFprobe and manual diagnostics.
 # 2026-10-30 - Stefan (gAlleb): Repair the optional setup helper using PR #38.
 # 2026-10-30 - Stefan (gAlleb): Release 5.0.0 from the maintained main branch.
@@ -77,7 +78,7 @@ let settings.autocue.cue_file.version =
   settings.make(
     description=
       "Software version of autocue.cue_file. Should coincide with `cue_file`.",
-    "5.0.0"
+    "5.0.1"
   )
 
 # Internal only! Not a user setting.

@@ -3,6 +3,7 @@
 
 # cue_file
 # Maintained by Stefan (gAlleb); tested with Liquidsoap 2.4.5 and 2.5.
+# 2026-10-30 Stefan (gAlleb) - Release 5.0.1 with tool paths and optional helper fixes.
 # 2026-10-30 Stefan (gAlleb) - Configure FFmpeg/FFprobe and add manual diagnostics.
 # 2026-10-30 Stefan (gAlleb) - Release 5.0.0 from the maintained main branch.
 # 2026-10-30 Stefan (gAlleb) - Apply the selected prefix to JSON as well as files.
@@ -88,7 +89,7 @@
 
 __author__ = 'Matthias C. Hormann; Stefan (gAlleb)'
 __maintainer__ = 'Stefan (gAlleb)'
-__version__ = '5.0.0'
+__version__ = '5.0.1'
 
 import os
 import sys
