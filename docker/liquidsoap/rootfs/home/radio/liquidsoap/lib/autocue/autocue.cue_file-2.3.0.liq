@@ -1,5 +1,6 @@
 # autocue.cue_file.liq
 # Maintained by Stefan (gAlleb); tested with Liquidsoap 2.4.5 and 2.5.
+# 2026-10-30 - Stefan (gAlleb): Repair the optional setup helper using PR #38.
 # 2026-10-30 - Stefan (gAlleb): Release 5.0.0 from the maintained main branch.
 # 2026-10-30 - Stefan (gAlleb): Use the selected prefix for annotations and JSON.
 # 2026-10-30 - Stefan (gAlleb): Add optional bounded fade-out extension.
@@ -300,56 +301,40 @@ def something_to_float(~true_value=1., value) =
   (possible_float ?? possible_bool) ?? 0.
 end
 
-# Deconstruct a SemVer version, return a record
+# Parse our numeric release core and optional labels, not general SemVer
+# ordering. Use the regex syntax and numeric fields suggested in Toots' PR #38.
 def semver(s) =
-  s = null.get(default="", s)
-  # SemVer RegEx, see https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string
-  #r = r/(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/gm
-  r = r/(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<build>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/gm
-  v = r.exec(s)
-  #print(v)
-  {
-    version = v[0],
-    major = v.groups["major"],
-    minor = v.groups["minor"],
-    patch = v.groups["patch"],
-    prerelease = v.groups["prerelease"],
-    build = v.groups["build"]
-  }
-end
-
-# Compare two SemVers
-# The return value is negative if ver1 < ver2,
-# zero if ver1 == ver2 and strictly positive if ver1 > ver2
-def semver_compare(s1, s2) =
-  s1 = null.get(default="", s1)
-  s2 = null.get(default="", s2)
-  v1 = semver(s1)
-  v2 = semver(s2)
-
-  if v1.major == v2.major and v1.minor == v2.minor and v1.patch == v2.patch then
-    0
-  elsif v1.major > v2.major then
-    1
-  elsif v1.major >= v2.major and v1.minor > v2.minor then
-    1
-  elsif v1.major >= v2.major and v1.minor >= v2.minor and v1.patch > v2.patch then
-    1
+  s = string.trim(null.get(default="", s))
+  r = r/^(?:cue_file[ \t]+)?(?<version>(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)\.(?<patch>0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)$/
+  if r.test(s) then
+    try
+      v = r.exec(s)
+      (
+        {
+          version=v.groups["version"],
+          major=int_of_string(v.groups["major"]),
+          minor=int_of_string(v.groups["minor"]),
+          patch=int_of_string(v.groups["patch"])
+        }
+      : {version: string, major?: int, minor?: int, patch?: int})
+    catch _ do {version=s} end
   else
-    -1
+    {version=s}
   end
 end
 
-# Get version of a CLI command
+# Get the first version line from a successful CLI invocation. Quote the
+# executable path as one argument, consistently with the analyzer call.
 def file_semver(command) =
   res =
-    list.hd(
-      default="",
-      process.read.lines(
-        #timeout=2.,
-        command ^ " --version"
-      )
-    )
+    try
+      p = process.run(process.quote.command(command, args=["--version"]))
+      if p.status == "exit" and p.status.code == 0 then
+        list.hd(default="", r/\r?\n/.split(p.stdout))
+      else
+        ""
+      end
+    catch _ do "" end
   semver(res)
 end
 
@@ -358,12 +343,13 @@ stdlib_shutdown = shutdown
 stdlib_print = print
 
 def check_autocue_setup(~shutdown=false, ~print=false) =
-  settings.autocue.cue_file.version_external := file_semver(settings.autocue.cue_file.path()).version
+  expected = semver(settings.autocue.cue_file.version())
+  actual = file_semver(settings.autocue.cue_file.path())
+  settings.autocue.cue_file.version_external :=
+    if null.defined(actual?.major) then actual.version else "(unknown)" end
 
-  if semver_compare(
-    settings.autocue.cue_file.version(),
-    settings.autocue.cue_file.version_external()
-  ) == 0
+  if null.defined(expected?.major) and null.defined(actual?.major)
+    and expected?.major == actual?.major
   then
     # set this so annotations (priority 5) can still override autocue values
     settings.autocue.metadata.priority := 10
@@ -405,17 +391,15 @@ def check_autocue_setup(~shutdown=false, ~print=false) =
   else
     log(level=1, label="autocue.cue_file",
       'ERROR: autocue.cue_file v#{settings.autocue.cue_file.version()} \
-       doesn’t match external "#{settings.autocue.cue_file.path()}" \
-       v#{settings.autocue.cue_file.version_external()}!\n\
-       Autocue NOT ACTIVATED!'
+       is not major-compatible with external "#{settings.autocue.cue_file.path()}" \
+       v#{settings.autocue.cue_file.version_external()} (or its version could not be read).'
     )
     # repeat on console, so standalone can see it
     if print then
       stdlib_print(
         'ERROR: autocue.cue_file v#{settings.autocue.cue_file.version()} \
-         doesn’t match external "#{settings.autocue.cue_file.path()}" \
-         v#{settings.autocue.cue_file.version_external()}!\n\
-         Autocue NOT ACTIVATED!'
+         is not major-compatible with external "#{settings.autocue.cue_file.path()}" \
+         v#{settings.autocue.cue_file.version_external()} (or its version could not be read).'
       )
     end
     if shutdown then
@@ -1248,8 +1232,7 @@ decoder.metadata.add(
 # settings.autocue.cue_file.nice := false  # Linux/MacOS only: Use NI=18 for analysis
 # settings.autocue.cue_file.use_json_metadata := true  # pass metadata to `cue_file` as JSON
 
-# Optional legacy helper; leave disabled in the maintained setup.
-# Its version regex is incompatible with the tested builds (see README).
+# Optional helper; leave disabled in the maintained setup (see README).
 # The adapter already initializes its settings when included.
 # ignore(check_autocue_setup(shutdown=true, print=false))
 
