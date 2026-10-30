@@ -320,7 +320,8 @@ def read_tags(
         tags_json={},
         target=TARGET_LUFS,
         blankskip=0.0,
-        noclip=False):
+        noclip=False,
+        diagnostics=None):
     # NOTE: Older ffmpeg/ffprobe don’t read ID3 tags if RIFF chunk found,
     #   see https://trac.ffmpeg.org/ticket/9848
     # ffprobe -v quiet -show_entries
@@ -407,7 +408,12 @@ def read_tags(
             tags_found["liq_cue_in"]
 
     # see if we need a re-analysis
-    skip_analysis = tags_mandatory.issubset(tags_found.keys())
+    missing_tags = tags_mandatory.difference(tags_found.keys())
+    skip_analysis = not missing_tags
+    analysis_reason = (
+        "missing required tags: " + ", ".join(sorted(missing_tags))
+        if missing_tags else "complete existing metadata"
+    )
 
     # try to avoid re-analysis if we have enough data but different loudness
     # target
@@ -422,6 +428,8 @@ def read_tags(
         tags_found["liq_reference_loudness"] = target
     else:
         # liq_amplify or liq_reference_loudness missing, must re-analyse
+        if skip_analysis:
+            analysis_reason = "missing loudness adjustment or reference"
         skip_analysis = False
 
     # we need liq_true_peak_db if noclip is requested
@@ -439,6 +447,11 @@ def read_tags(
                 noclip
         )
     else:
+        if skip_analysis:
+            missing = {
+                "liq_true_peak_db", "liq_true_peak", "liq_loudness"
+            }.difference(tags_found)
+            analysis_reason = "missing measured tags: " + ", ".join(sorted(missing))
         skip_analysis = False
 
     # if liq_blankskip different from requested, we need a re-analysis
@@ -446,6 +459,9 @@ def read_tags(
             and "liq_blankskip" in tags_found
             and (tags_found["liq_blankskip"] != blankskip)
         ):
+        analysis_reason = (
+            f"blankskip changed: {tags_found['liq_blankskip']} -> {blankskip}"
+        )
         skip_analysis = False
 
     # liq_loudness_range is only informational but we want to show correct values
@@ -453,9 +469,12 @@ def read_tags(
     if (skip_analysis
             and "liq_loudness_range" not in tags_found
         ):
+        analysis_reason = "missing informational tag: liq_loudness_range"
         skip_analysis = False
 
     # eprint(skip_analysis, json.dumps(tags_found, indent=2, sort_keys=True))
+    if diagnostics is not None:
+        diagnostics["reason"] = analysis_reason
     return skip_analysis, tags_found
 
 
@@ -1218,10 +1237,15 @@ if args.json:
         pass
     args.json.close()
 
+diagnostics = {}
 skip_analysis, tags_found = read_tags(
-    args.file, tags_json, args.target, args.blankskip, args.noclip)
+    args.file, tags_json, args.target, args.blankskip, args.noclip,
+    diagnostics=diagnostics)
 
-if args.force or not skip_analysis:
+analysis_performed = args.force or not skip_analysis
+analysis_reason = "forced by -f/--force" if args.force else diagnostics["reason"]
+
+if analysis_performed:
     result = analyse(
         filename=args.file,
         target=args.target,
@@ -1251,6 +1275,8 @@ if args.write:
 # prepare JSON result
 # we use "dB" instead of "LU" units, because LS & others don’t understand "LU"
 liq_result = {
+    # Runtime diagnostics only; never written to the audio file's tags.
+    "analysis": {"performed": analysis_performed, "reason": analysis_reason},
     "duration": result['duration'],
     "liq_cue_duration": result['liq_cue_duration'],
     "liq_cue_in": result['liq_cue_in'],

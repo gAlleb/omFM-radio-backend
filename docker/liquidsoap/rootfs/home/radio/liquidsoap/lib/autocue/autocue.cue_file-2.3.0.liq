@@ -437,7 +437,7 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
     log(
       level=3,
       label=label,
-      'Now autocueing: "#{filename}"'
+      'Preparing autocue metadata for "#{filename}"'
     )
 
     l = list.sort.natural(stdlib_metadata.cover.remove(meta))
@@ -575,6 +575,27 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
     if
       res != ""
     then
+      let json.parse (
+        diagnostics : {analysis?: {performed: bool, reason: string}}
+      ) = res
+
+      if null.defined(diagnostics?.analysis) then
+        analysis = null.get(diagnostics?.analysis)
+        action =
+          if analysis.performed then
+            "Full audio analysis performed"
+          else
+            "Using existing tags; audio analysis skipped"
+          end
+        log(level=3, label=label, '#{action} for "#{filename}": #{analysis.reason}')
+      else
+        log(
+          level=3,
+          label=label,
+          'Analysis status unavailable for "#{filename}": external cue_file did not report it'
+        )
+      end
+
       log(
         level=3,
         label=label,
