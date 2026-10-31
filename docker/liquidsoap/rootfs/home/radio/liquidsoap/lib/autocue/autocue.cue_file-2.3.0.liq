@@ -1,4 +1,5 @@
 # autocue.cue_file.liq
+# 2026-10-31 Stefan (gAlleb) - Optional minimum fade-out for abrupt endings.
 # 2026-10-30 - Stefan (gAlleb): Release 5.0.2 with private autocue_* working keys.
 # 2026-10-30 - Stefan (gAlleb): Use autocue_* for internal working keys.
 # Maintained by Stefan (gAlleb); tested with Liquidsoap 2.4.5 and 2.5.
@@ -125,6 +126,15 @@ let settings.autocue.cue_file.fade_out =
     description=
       "Default fade-out duration if not specified by the user.",
     2.5
+  )
+
+let settings.autocue.cue_file.minimum_fade_out =
+  settings.make(
+    description="Optional minimum fade-out for short or abrupt endings, in seconds. \
+      Zero disables it. Moves start_next earlier without moving cue_out, \
+      capped by the requested fade-out. Explicit zero fades and tracks too \
+      short to fit the minimum are left unchanged.",
+    0.0
   )
 
 let settings.autocue.cue_file.extend_fade_out =
@@ -577,6 +587,10 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
   nice = settings.autocue.cue_file.nice()
   noclip = settings.autocue.cue_file.noclip()
   use_json_metadata = settings.autocue.cue_file.use_json_metadata()
+  minimum_fade_out = settings.autocue.cue_file.minimum_fade_out()
+  if not (minimum_fade_out >= 0.0 and minimum_fade_out < infinity) then
+    error.raise(error.invalid, "Minimum fade-out must be a finite, non-negative duration.")
+  end
   extend_fade_out = settings.autocue.cue_file.extend_fade_out()
   extension_threshold = settings.autocue.cue_file.fade_out_extension_threshold()
   extension_max = settings.autocue.cue_file.fade_out_extension_max()
@@ -1093,6 +1107,28 @@ def cue_file(~request_metadata, ~file_metadata, filename) =
           end
         end
 
+      # Optionally reserve a short fade before a hard ending. Respect an
+      # explicit zero/short fade and never consume the entire cue interval.
+      minimum = min(minimum_fade_out, autocue_fade_out)
+      let (autocue_cross_start_next, autocue_fade_out) =
+        if
+          minimum > 0.0 and
+          autocue_cue_out - autocue_cross_start_next + 0.000001 < minimum and
+          autocue_cue_out - minimum > autocue_cue_in
+        then
+          start_next = autocue_cue_out - minimum
+          log(
+            level=3,
+            label=label,
+            "Applying minimum fade-out #{minimum} s: moving start_next \
+             from #{autocue_cross_start_next} s to #{start_next} s; \
+             preserving cue_out=#{autocue_cue_out} s."
+          )
+          (start_next, minimum)
+        else
+          (autocue_cross_start_next, autocue_fade_out)
+        end
+
       # Adjust cue_out according to user-supplied fade_out
       let (autocue_fade_out, autocue_cue_out) =
         if
@@ -1281,6 +1317,7 @@ decoder.metadata.add(
 # settings.autocue.cue_file.tag_prefix := "liq_"  # legacy; use e.g. ac_ for new libraries
 # settings.autocue.cue_file.fade_in := 0.1  # seconds
 # settings.autocue.cue_file.fade_out := 2.5  # seconds
+# settings.autocue.cue_file.minimum_fade_out := 0.0  # opt in, e.g. 1.1 s, for abrupt endings
 # settings.autocue.cue_file.extend_fade_out := false  # opt in to preserve long tails
 # settings.autocue.cue_file.fade_out_extension_threshold := 1.6  # minimum extra seconds
 # settings.autocue.cue_file.fade_out_extension_max := 15.0  # maximum eligible tail
